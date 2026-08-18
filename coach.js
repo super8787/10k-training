@@ -9,8 +9,11 @@
   'use strict';
 
   var R = {
-    HR_EASY_CEIL: 144,   // Z2 上限
-    HR_STEADY_CEIL: 160, // Z3 上限；easy/long 課超過就算跑太快
+    /* ⚠️ HR_EASY_CEIL / HR_STEADY_CEIL 是 fallback，正式值一律由 zonesOf(plan) 從
+       plan.meta.zones 取。它們原本是 0.72×HRMAX / 0.80×HRMAX 的手抄副本——
+       HRmax 一改（實測值本來就會重測），這裡不動就會跟課表打架。 */
+    HR_EASY_CEIL: 144,   // fallback：Z2 上限
+    HR_STEADY_CEIL: 160, // fallback：Z3 上限
     CADENCE_MIN: 150,    // R5 判定門檻；app.js 的 CAD.warn 直接引用這個值
     CADENCE_TARGET: 165, // 目標步頻；課表沒指定時的 fallback
     MISS_STREAK: 2,      // 連續幾次沒完成就降階
@@ -21,6 +24,22 @@
     PACE_SLOWDOWN: 30,   // 建議放慢秒數/km
     RHR_JUMP: 7          // 靜止心率比 7 日均值高幾下就建議休息
   };
+
+  /* 心率門檻的唯一來源。plan.meta.zones 是 build_plan.py 從 HRmax 算出來的，
+     coach.js 與 app.js 都必須從這裡取，不要各自抄一份數字。 */
+  function zonesOf(plan) {
+    var z = plan && plan.meta && plan.meta.zones;
+    return {
+      z2lo:       z ? z.Z2.lo : R.HR_EASY_CEIL - 24,
+      easyCeil:   z ? z.Z2.hi : R.HR_EASY_CEIL,
+      steadyCeil: z ? z.Z3.hi : R.HR_STEADY_CEIL,
+      z5hi:       z ? z.Z5.hi : 200
+    };
+  }
+  function inZone2(plan, v) {
+    var t = zonesOf(plan);
+    return v >= t.z2lo && v <= t.easyCeil;
+  }
 
   function ymd(d) {
     return d.getFullYear() + '-' +
@@ -46,9 +65,8 @@
     logs = logs || {};
     todayStr = todayStr || ymd(new Date());
     var days = plan.days;
-    // Z2 下緣取自課表 meta，不在文案裡硬編
-    var zoneLo = (plan.meta && plan.meta.zones && plan.meta.zones.Z2)
-      ? plan.meta.zones.Z2.lo : R.HR_EASY_CEIL - 24;
+    var T = zonesOf(plan);
+    var zoneLo = T.z2lo;
     var advices = [];
     var adj = {
       paceSlowdownSec: 0,
@@ -68,7 +86,7 @@
     var hotOnes = recent.filter(function (d) {
       var l = logs[d.date];
       return (d.kind === 'easy' || d.kind === 'long') &&
-        l && typeof l.hrAvg === 'number' && l.hrAvg > R.HR_STEADY_CEIL;
+        l && typeof l.hrAvg === 'number' && l.hrAvg > T.steadyCeil;
     });
     if (hotOnes.length > 0) {
       var last = hotOnes[hotOnes.length - 1];
@@ -80,12 +98,12 @@
         id: 'R1', level: hotOnes.length >= 2 ? 'crit' : 'hot', icon: '🔥',
         title: '你又跑太快了',
         detail: '最近 ' + hotOnes.length + ' 次輕鬆／長跑的平均心率超過 ' +
-          R.HR_STEADY_CEIL + '（最近一次 ' + lastHr + '）。輕鬆跑該落在 ' +
-          zoneLo + '-' + R.HR_EASY_CEIL + '。' +
+          T.steadyCeil + '（最近一次 ' + lastHr + '）。輕鬆跑該落在 ' +
+          zoneLo + '-' + T.easyCeil + '。' +
           '下一次同類型的課，配速主動放慢 ' + R.PACE_SLOWDOWN +
           ' 秒/公里，長跑目標時間先打 ' + Math.round(R.LONG_CUT_SOFT * 10) +
           ' 折。慢下來不是退步，是唯一能讓你跑完 10K 的路。',
-        rule: 'R1｜easy/long 課平均心率 > ' + R.HR_STEADY_CEIL + ' bpm'
+        rule: 'R1｜easy/long 課平均心率 > ' + T.steadyCeil + ' bpm'
       });
     }
 
@@ -114,7 +132,7 @@
     if (streak === 0 && easyRecent.length === R.GOOD_STREAK) {
       var allInZone = easyRecent.every(function (d) {
         var l = logs[d.date];
-        return l && typeof l.hrAvg === 'number' && l.hrAvg <= R.HR_EASY_CEIL;
+        return l && typeof l.hrAvg === 'number' && inZone2(plan, l.hrAvg);
       });
       if (allInZone) {
         adj.longRunFactor = Math.max(adj.longRunFactor, R.LONG_BOOST);
@@ -122,10 +140,10 @@
         advices.push({
           id: 'R3', level: 'good', icon: '📈',
           title: '有氧基礎正在長出來',
-          detail: '最近 ' + R.GOOD_STREAK + ' 次輕鬆跑心率都待在 Z2（≤' + R.HR_EASY_CEIL +
+          detail: '最近 ' + R.GOOD_STREAK + ' 次輕鬆跑心率都待在 Z2（' + T.z2lo + '-' + T.easyCeil +
             '）而且都完成了。這正是計畫要的。下次長跑可以加 ' +
             Math.round((R.LONG_BOOST - 1) * 100) + '%，但心率規則不變。',
-          rule: 'R3｜連續 ' + R.GOOD_STREAK + ' 次 easy 課完成且平均心率 ≤ ' + R.HR_EASY_CEIL
+          rule: 'R3｜連續 ' + R.GOOD_STREAK + ' 次 easy 課完成且平均心率落在 Z2（' + T.z2lo + '-' + T.easyCeil + '）'
         });
       }
     }
@@ -309,6 +327,7 @@
 
   global.Coach = {
     analyze: analyze, currentWeek: currentWeek,
-    applyAdjustments: applyAdjustments, RULES: R, ymd: ymd
+    applyAdjustments: applyAdjustments, RULES: R, ymd: ymd,
+    zonesOf: zonesOf, inZone2: inZone2
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

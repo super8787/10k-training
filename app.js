@@ -18,11 +18,10 @@ var CAD = {
   target: Coach.RULES.CADENCE_TARGET,  // 與教練引擎的目標步頻同一個數字
   good:   160, min: 60, max: 260
 };
-var HR = {
-  min: 30, max: 250,
-  easyCeil:   Coach.RULES.HR_EASY_CEIL,    // Z2 上限，UI 顯示「✓ Z2」的門檻
-  steadyCeil: Coach.RULES.HR_STEADY_CEIL   // Z3 上限，UI 顯示「偏高」的門檻
-};
+var HR = { min: 30, max: 250 };
+/* 心率門檻一律走 Coach.zonesOf(PLAN)，唯一來源是 plan.meta.zones（由 HRmax 算出）。
+   踩過：coach.js 抄一份 144/160、app.js 再抄一份，HRmax 一改三邊打架。 */
+function hrT() { return Coach.zonesOf(PLAN); }
 function cadenceBadge(v) {
   return v >= CAD.good ? ['up', '✓ 達標']
        : v >= CAD.warn ? ['warn', '差 ' + (CAD.good - v)]
@@ -35,15 +34,12 @@ function cadenceColor(v) {
 /* 心率的判定同樣只能有一份。踩過：徽章判 `<=144` 就給「✓ Z2」，
    但 45 bpm 也 <=144，於是同一列出現「低於 Z1 ✓ Z2」自相矛盾。
    「在 Z2 帶內」必須是雙邊條件，跟圖上的點色、zoneOf 用同一套。 */
-function inZ2(v) {
-  var Z = PLAN.meta.zones;
-  return v >= Z.Z2.lo && v <= Z.Z2.hi;
-}
+function inZ2(v) { return Coach.inZone2(PLAN, v); }
 function hrColor(v) {
-  var Z = PLAN.meta.zones;
-  return v > Z.Z3.hi ? 'var(--red)'
-       : v > Z.Z2.hi ? 'var(--amber)'
-       : v >= Z.Z2.lo ? 'var(--green)' : 'var(--accent)';
+  var t = hrT();
+  return v > t.steadyCeil ? 'var(--red)'
+       : v > t.easyCeil   ? 'var(--amber)'
+       : v >= t.z2lo      ? 'var(--green)' : 'var(--accent)';
 }
 var PLAN = null, S = null, TAB = 'today';
 
@@ -79,7 +75,9 @@ function sanitizeLog(raw) {
   }
   if (raw.source === 'shortcut' || raw.source === 'manual') o.source = raw.source;
   if (raw.cadenceDerived === true) o.cadenceDerived = true;
-  if (typeof raw.completedAt === 'string' && raw.completedAt.length <= 40) {
+  // 只收 ISO 格式，不要讓任意字串（含 XSS payload）留在 store 裡等下游踩
+  if (typeof raw.completedAt === 'string' &&
+      /^\d{4}-\d{2}-\d{2}T[\d:.]+Z?$/.test(raw.completedAt)) {
     o.completedAt = raw.completedAt;
   }
   return o;
@@ -254,6 +252,11 @@ function renderToday() {
 
   var lg = S.logs[t] || {};
   h += '<div class="hero">' + sessionBlock(sess, c.adjustments) + '</div>';
+  if (lg.skipped && !lg.done) {
+    h += '<div class="focus warn"><b>已記錄：今天沒跑</b><br>' +
+      '不用補課——補出來的疲勞比跳過一堂更傷。照原本的課表往下走就好。<br>' +
+      '如果其實有跑，按下面的「完成」就會蓋掉這筆。</div>';
+  }
 
   if (t === race) {
     h += '<div class="focus alert" style="margin-top:0"><b>🏁 就是今天</b><br>' +
@@ -266,9 +269,11 @@ function renderToday() {
     h += '<button class="btn done" data-act="log"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>已完成 · 點這裡改資料</button>';
   } else {
     h += '<button class="btn" data-act="done"><svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>' +
-      (t === race ? '我完賽了 🏁' : '完成今天的訓練') + '</button>';
-    h += '<button class="btn ghost" data-act="skip">' +
-      (t === race ? '今天沒能上場' : '今天沒跑') + '</button>';
+      (t === race ? '我完賽了 🏁' : lg.skipped ? '其實有跑，改成完成' : '完成今天的訓練') + '</button>';
+    if (!lg.skipped) {
+      h += '<button class="btn ghost" data-act="skip">' +
+        (t === race ? '今天沒能上場' : '今天沒跑') + '</button>';
+    }
   }
   h += '</div>';
 
@@ -284,7 +289,7 @@ function logCard(date, lg, sess) {
   if (lg.km && lg.durationMin) rows.push(['平均配速', pace(lg.km, lg.durationMin) + ' <small>/km</small>']);
   if (lg.hrAvg) {
     var z = zoneOf(lg.hrAvg), warn = '';
-    if ((sess.kind === 'easy' || sess.kind === 'long') && lg.hrAvg > HR.steadyCeil)
+    if ((sess.kind === 'easy' || sess.kind === 'long') && lg.hrAvg > hrT().steadyCeil)
       warn = ' <span class="delta down">偏高</span>';
     else if (inZ2(lg.hrAvg)) warn = ' <span class="delta up">✓ Z2</span>';
     rows.push(['平均心率', esc(lg.hrAvg) + ' <small>bpm · ' + esc(z) + '</small>' + warn]);
@@ -332,9 +337,12 @@ function zoneOf(hr) {
   var z = PLAN.meta.zones, names = ['Z1', 'Z2', 'Z3', 'Z4', 'Z5'];
   if (hr < z.Z1.lo) return '低於 Z1';   // 45 bpm 不該顯示成「Z1 恢復」
   for (var i = 0; i < names.length; i++) {
-    if (hr <= z[names[i]].hi) return names[i] + ' ' + z[names[i]].name;
+    // 用「小於下一區的下緣」判定：Z1.hi 與 Z2.lo 同為 120，用 <= hi 會讓 120 落進 Z1，
+    // 於是出現「Z1 恢復 ✓ Z2」自相矛盾。
+    var nxt = z[names[i + 1]];
+    if (nxt ? hr < nxt.lo : hr <= z.Z5.hi) return names[i] + ' ' + z[names[i]].name;
   }
-  return 'Z5 最大';
+  return 'Z5 ' + z.Z5.name;
 }
 
 /* ── 本週 ── */
@@ -354,7 +362,7 @@ function renderWeek() {
     var cls = 'day';
     if (d.date === t) cls += ' is-today';
     if (lg.done) cls += ' is-done';
-    else if (d.date < t) cls += ' is-miss';
+    else if (lg.skipped || d.date < t) cls += ' is-miss';
     h += '<div class="' + cls + '" data-open="' + d.date + '">';
     h += '<div class="day-date"><div class="day-wd">週' + d.weekday + '</div>' +
       '<div class="day-dd">' + Number(d.date.slice(8)) + '</div></div>';
@@ -366,7 +374,9 @@ function renderWeek() {
     if (lg.done && lg.hrAvg) h += ' · 實際 ' + esc(lg.hrAvg);
     h += '</div></div>';
     h += '<div class="day-chk' + (lg.done ? ' on' : '') + '">' +
-      (lg.done ? '<svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>' : '') + '</div>';
+      (lg.done ? '<svg viewBox="0 0 24 24"><path d="M20 6L9 17l-5-5"/></svg>'
+       : lg.skipped ? '<svg viewBox="0 0 24 24" style="stroke:var(--red)"><path d="M18 6L6 18M6 6l12 12"/></svg>'
+       : '') + '</div>';
     h += '</div>';
   });
   h += '</div>';
@@ -472,8 +482,10 @@ function renderData() {
   var Z = PLAN.meta.zones;
   var hrs = done.filter(function (d) { return S.logs[d.date].hrAvg; });
   var easyLong = hrs.filter(function (d) { return d.kind === 'easy' || d.kind === 'long'; });
-  var inZ2 = easyLong.filter(function (d) { return S.logs[d.date].hrAvg <= Z.Z2.hi; }).length;
-  var pctZ2 = easyLong.length ? Math.round(inZ2 / easyLong.length * 100) : 0;
+  // 必須用雙邊判定。單邊 `<= Z2.hi` 會把 45／95 bpm 也算成「落在 Z2」，
+  // 於是 App 標題最大的那個數字顯示 100% ＋「有氧基礎正在長出來」——完全相反的結論。
+  var nInZ2 = easyLong.filter(function (d) { return inZ2(S.logs[d.date].hrAvg); }).length;
+  var pctZ2 = easyLong.length ? Math.round(nInZ2 / easyLong.length * 100) : 0;
 
   var h = '';
   /* 最重要的一個數字 */
@@ -481,8 +493,8 @@ function renderData() {
   h += '<div class="card big"><div class="big-n" style="color:' +
     (pctZ2 >= 70 ? 'var(--green)' : pctZ2 >= 40 ? 'var(--amber)' : 'var(--red)') + '">' +
     pctZ2 + '<span class="big-u">%</span></div>' +
-    '<div class="big-l">輕鬆跑／長跑中，平均心率落在 Z2（≤' + Z.Z2.hi + '）的比例<br>' +
-    '<span class="muted">' + inZ2 + ' / ' + easyLong.length + ' 堂 · 目標 70% 以上</span></div></div>';
+    '<div class="big-l">輕鬆跑／長跑中，平均心率落在 Z2（' + Z.Z2.lo + '-' + Z.Z2.hi + '）的比例<br>' +
+    '<span class="muted">' + nInZ2 + ' / ' + easyLong.length + ' 堂 · 目標 70% 以上</span></div></div>';
   h += '<div class="focus' + (pctZ2 >= 70 ? '' : ' warn') + '">' +
     (pctZ2 >= 70
       ? '很好。有氧基礎正在長出來，這就是能跑完 10K 的東西。'
@@ -668,10 +680,10 @@ function drawSheet(sess) {
     h += '</div></div>';
   }
 
-  h += stepField('距離', 'km', draft.km, 'km', 0.1, 1);
-  h += stepField('時間', 'durationMin', draft.durationMin, '分', 1, 0);
-  h += stepField('平均心率', 'hrAvg', draft.hrAvg, 'bpm', 1, 0, '手錶上那個數字');
-  h += stepField('步頻', 'cadence', draft.cadence, 'spm', 1, 0, '目標 ' + (sess.cadence || CAD.target));
+  h += stepField('距離', 'km', draft.km, 'km', 0.1);
+  h += stepField('時間', 'durationMin', draft.durationMin, '分', 1);
+  h += stepField('平均心率', 'hrAvg', draft.hrAvg, 'bpm', 1, '手錶上那個數字');
+  h += stepField('步頻', 'cadence', draft.cadence, 'spm', 1, '目標 ' + (sess.cadence || CAD.target));
 
   h += '<div class="field"><div class="field-l">跑起來的感覺<em>可略過</em></div><div class="chips">';
   ['很輕鬆', '輕鬆', '有點喘', '很喘', '快掛了'].forEach(function (t, i) {
@@ -684,7 +696,7 @@ function drawSheet(sess) {
     h += '<div class="focus">換算平均配速：<b>' + pace(draft.km, draft.durationMin) + ' / 公里</b></div>';
   }
   if (draft.hrAvg) {
-    var over = (sess.kind === 'easy' || sess.kind === 'long') && draft.hrAvg > HR.steadyCeil;
+    var over = (sess.kind === 'easy' || sess.kind === 'long') && draft.hrAvg > hrT().steadyCeil;
     h += '<div class="focus' + (over ? ' alert' : '') + '">心率 ' + draft.hrAvg + ' = <b>' +
       zoneOf(draft.hrAvg) + '</b>' + (over ? '　⚠️ 這堂課跑太快了' : '') + '</div>';
   }
@@ -697,9 +709,9 @@ function drawSheet(sess) {
    踩過的坑：步進器寫 km[0,30]／min[0,300] 但淨化層是 [0,100]／[0,600]，
    捷徑同步進 42.2km／420分之後，使用者按一下步進器就被夾成 30／300 並存檔＝靜默資料破壞。
    兩處各寫一份範圍遲早會漂移，所以直接拿掉「各寫一份」的可能性。 */
-function stepField(label, key, val, unit, step, dec, hint) {
+function stepField(label, key, val, unit, step, hint) {
   var sp = LOG_NUM[key];
-  var min = sp[0], max = sp[1];
+  var min = sp[0], max = sp[1], dec = sp[2];   // 小數位數也只有這一份
   var shown = val == null ? '—' : (dec ? Number(val).toFixed(dec) : Math.round(val));
   return '<div class="field"><div class="field-l">' + label +
     (hint ? '<em>' + esc(hint) + '</em>' : '<em>可留空</em>') + '</div>' +
@@ -729,7 +741,8 @@ function onTap(e) {
       cur = cur + dir * s;
     }
     cur = Math.min(mx, Math.max(mn, cur));
-    draft[k] = k === 'km' ? Math.round(cur * 10) / 10 : Math.round(cur);
+    var d2 = LOG_NUM[k][2];   // 精度取自同一份定義，別在這裡重寫 Math.round(x*10)/10
+    draft[k] = d2 ? Math.round(cur * Math.pow(10, d2)) / Math.pow(10, d2) : Math.round(cur);
     drawSheet(sessionOf(draft.date));
     return;
   }
