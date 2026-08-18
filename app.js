@@ -156,13 +156,26 @@ function toast(msg) {
 function sessionOf(date) {
   return PLAN.days.find(function (d) { return d.date === date; }) || null;
 }
+/* 🔴 凡是要「顯示給使用者」或「當成預填值」的課表，一律走這個，不要直接用 sessionOf()。
+   這個病灶在驗收裡出現四次：重點句、本週列表、面板標題、面板預填值，
+   每次都是「拿了原始物件去畫，旁邊的數字卻是調整後的」。
+   最後一次更嚴重——預填的是沒跑過的距離，按一下儲存就寫進訓練紀錄。
+   sessionOf() 之後只該用在「這天是不是訓練日」這種存在性判斷。 */
+function shownSession(date) {
+  var s0 = sessionOf(date);
+  if (!s0) return null;
+  var r = Coach.applyAdjustments(s0, coachNow().adjustments);
+  return { session: r.session, notes: r.notes };
+}
 function coachNow() { return Coach.analyze(PLAN, S.logs, today()); }
 
 /* ── 課程內容區塊（今天／點開某天共用）── */
-function sessionBlock(sess, adj) {
-  var k = KIND[sess.kind] || KIND.easy;
-  var applied = Coach.applyAdjustments(sess, adj || { longRunFactor: 1, paceSlowdownSec: 0, reasons: [] });
-  var s = applied.session, notes = applied.notes;
+/* 只負責畫。調整一律在 shownSession() 做完再傳進來——
+   曾經兩邊都套，結果 6K 被降階兩次變成 3.8K。 */
+function sessionBlock(s, notes) {
+  var sess = s;
+  var k = KIND[s.kind] || KIND.easy;
+  notes = notes || [];
   var h = '';
 
   h += '<div class="hero-top">';
@@ -185,10 +198,13 @@ function sessionBlock(sess, adj) {
       '</div></div>';
   }
 
-  h += '<div class="metrics">';
+  h += '<div class="metrics' + (s.km ? ' four' : '') + '">';
   if (s.km) {
+    // 兩個時間都要露出來，否則卡片寫「43 分」、記錄面板預填「53 分」，
+    // 使用者不知道差在哪（43 是跑步、53 是含暖身緩和的總時間）
     h += '<div class="metric"><div class="metric-n">' + s.km + '<span class="metric-u"> K</span></div><div class="metric-l">距離</div></div>';
-    h += '<div class="metric"><div class="metric-n">' + s.runMin + '<span class="metric-u"> 分</span></div><div class="metric-l">預估用時</div></div>';
+    h += '<div class="metric"><div class="metric-n">' + s.runMin + '<span class="metric-u"> 分</span></div><div class="metric-l">預估跑步</div></div>';
+    h += '<div class="metric"><div class="metric-n">' + s.totalMin + '<span class="metric-u"> 分</span></div><div class="metric-l">全部含走路</div></div>';
   } else {
     h += '<div class="metric"><div class="metric-n">' + s.runMin + '<span class="metric-u"> 分</span></div><div class="metric-l">跑步時間</div></div>';
     h += '<div class="metric"><div class="metric-n">' + s.totalMin + '<span class="metric-u"> 分</span></div><div class="metric-l">全部含走路</div></div>';
@@ -215,7 +231,7 @@ function sessionBlock(sess, adj) {
 
 /* ── 今天 ── */
 function renderToday() {
-  var t = today(), c = coachNow(), sess = sessionOf(t);
+  var t = today(), c = coachNow(), shown = shownSession(t), sess = shown && shown.session;
   var h = '<div class="stack">';
   var start = PLAN.meta.startDate, race = PLAN.meta.raceDate;
 
@@ -228,7 +244,8 @@ function renderToday() {
       '在那之前：把跑鞋準備好，手錶的體能訓練 App 熟悉一下，' +
       '然後記住這句話——<b>這 11 週你唯一要學會的事，是慢下來。</b></div></div>';
     h += '<div class="sec-h"><h2>第一堂課長這樣</h2></div>';
-    h += '<div class="hero">' + sessionBlock(PLAN.days[0], c.adjustments) + '</div>';
+    var first = shownSession(PLAN.days[0].date);
+    h += '<div class="hero">' + sessionBlock(first.session, first.notes) + '</div>';
     h += baselineCard();
     h += '</div>'; return h;
   }
@@ -247,7 +264,8 @@ function renderToday() {
       '真正變強是在休息的時候發生的，不是在跑的時候。</div></div>';
     if (next) {
       h += '<div class="sec-h"><h2>下一堂 · ' + md(next.date) + '（週' + next.weekday + '）</h2></div>';
-      h += '<div class="hero">' + sessionBlock(next, c.adjustments) + '</div>';
+      var nx = shownSession(next.date);
+      h += '<div class="hero">' + sessionBlock(nx.session, nx.notes) + '</div>';
     } else {
       h += '<div class="card center"><div class="empty-i">🏁</div>' +
         '<div class="empty-t">課表已經跑完了</div>' +
@@ -258,7 +276,7 @@ function renderToday() {
   }
 
   var lg = S.logs[t] || {};
-  h += '<div class="hero">' + sessionBlock(sess, c.adjustments) + '</div>';
+  h += '<div class="hero">' + sessionBlock(sess, shown.notes) + '</div>';
   if (lg.skipped && !lg.done) {
     h += '<div class="focus warn"><b>已記錄：今天沒跑</b><br>' +
       '不用補課——補出來的疲勞比跳過一堂更傷。照原本的課表往下走就好。<br>' +
@@ -368,7 +386,7 @@ function renderWeek() {
   days.forEach(function (d0) {
     // 本週列表也要顯示調整後的數字。原本用原始物件，於是同一堂課
     // 今天頁寫「跑 12 分」、本週列寫「跑 15 分」——跨頁兩個數字。
-    var d = Coach.applyAdjustments(d0, c.adjustments).session;
+    var d = (shownSession(d0.date) || {}).session || d0;
     var lg = S.logs[d.date] || {}, k = KIND[d.kind] || KIND.easy;
     var cls = 'day';
     if (d.date === t) cls += ' is-today';
@@ -665,8 +683,12 @@ function renderCoach() {
 /* ── 記錄面板 ── */
 var draft = null;
 function openSheet(date) {
-  var sess = sessionOf(date);
-  if (!sess) return;
+  if (!sessionOf(date)) return;
+  /* 🔴 預填值必須用調整後的課表。
+     踩過：卡片顯示「4.8 K／43 分」但面板預填 6.00 km／64 分（未降階的原值），
+     而面板寫著「跑完隨手點一下就好」——照做按儲存就把沒跑過的 6 公里寫進紀錄，
+     然後污染累計距離、配速與教練引擎的判斷。 */
+  var sess = shownSession(date).session;
   var lg = S.logs[date] || {};
   draft = {
     km: lg.km != null ? lg.km : (sess.km || null),
@@ -677,8 +699,7 @@ function openSheet(date) {
     checkpointResult: lg.checkpointResult || null,
     date: date
   };
-  var adjSess = Coach.applyAdjustments(sess, coachNow().adjustments).session;
-  $('#sheetTitle').textContent = md(date) + '（週' + adjSess.weekday + '）' + adjSess.title;
+  $('#sheetTitle').textContent = md(date) + '（週' + sess.weekday + '）' + sess.title;
   drawSheet(sess);
   $('#sheet').hidden = false;
   document.body.style.overflow = 'hidden';
@@ -756,7 +777,7 @@ function onTap(e) {
     var mn = +step.dataset.min, mx = +step.dataset.max;
     var cur = draft[k];
     if (cur == null) {
-      var sess0 = sessionOf(draft.date);
+      var sess0 = shownSession(draft.date).session;
       cur = k === 'hrAvg' ? 140 : k === 'cadence' ? (sess0.cadence || CAD.target) : 0;
     } else {
       cur = cur + dir * s;
@@ -764,13 +785,13 @@ function onTap(e) {
     cur = Math.min(mx, Math.max(mn, cur));
     var d2 = LOG_NUM[k][2];   // 精度取自同一份定義，別在這裡重寫 Math.round(x*10)/10
     draft[k] = d2 ? Math.round(cur * Math.pow(10, d2)) / Math.pow(10, d2) : Math.round(cur);
-    drawSheet(sessionOf(draft.date));
+    drawSheet(shownSession(draft.date).session);
     return;
   }
   var rpe = t.closest('[data-rpe]');
-  if (rpe) { draft.rpe = draft.rpe === +rpe.dataset.rpe ? null : +rpe.dataset.rpe; drawSheet(sessionOf(draft.date)); return; }
+  if (rpe) { draft.rpe = draft.rpe === +rpe.dataset.rpe ? null : +rpe.dataset.rpe; drawSheet(shownSession(draft.date).session); return; }
   var cp = t.closest('[data-cp]');
-  if (cp) { draft.checkpointResult = draft.checkpointResult === cp.dataset.cp ? null : cp.dataset.cp; drawSheet(sessionOf(draft.date)); return; }
+  if (cp) { draft.checkpointResult = draft.checkpointResult === cp.dataset.cp ? null : cp.dataset.cp; drawSheet(shownSession(draft.date).session); return; }
 
   var open = t.closest('[data-open]');
   if (open) { openSheet(open.dataset.open); return; }

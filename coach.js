@@ -296,7 +296,10 @@
   /* 把調整量套到單一堂課，回傳 {session, notes[]} */
   function applyAdjustments(sess, adj) {
     var s = Object.assign({}, sess), notes = [];
-    if (adj.longRunFactor !== 1 && (s.kind === 'long')) {
+    /* 檢查點不降階。CP1／CP2 的意義就是測「做不做得到那個量」，
+       自動降成 6.4K 等於測驗失去意義，而且照降階後的量跑完必然回報未達成，
+       反而觸發 runWalkMode 改掉比賽策略。測驗就是測驗。 */
+    if (adj.longRunFactor !== 1 && s.kind === 'long' && !s.checkpoint) {
       var f = adj.longRunFactor;
       var m0 = s.runMin, k0 = s.km, t0 = s.totalMin;
 
@@ -313,7 +316,10 @@
         s.totalMin = Math.round(fixed + (runPer + walkPer) * reps);
         s.detail = s.detail.replace(iv[0],
           '（跑 ' + iv[1] + ' 分／走 ' + iv[2] + ' 分）×' + reps);
-        notes.push('組數 ×' + reps0 + ' → ×' + reps + '（跑步時間 ' + m0 + ' → ' + s.runMin + ' 分）');
+        // 四捨五入後組數沒變就別說「已調整」——會出現「×2 → ×2」這種自相矛盾的註記
+        if (reps !== reps0) {
+          notes.push('組數 ×' + reps0 + ' → ×' + reps + '（跑步時間 ' + m0 + ' → ' + s.runMin + ' 分）');
+        }
       } else {
         var walk = t0 - m0;                                    // 走路時間不隨降階變動
         s.runMin = Math.round(m0 * f);
