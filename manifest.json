@@ -1,0 +1,17 @@
+{
+  "name": "10K 教練",
+  "short_name": "10K 教練",
+  "description": "11 週從 2K 到 10K 的訓練計畫，讀手錶資料自動調整課表",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0B0E11",
+  "theme_color": "#0B0E11",
+  "lang": "zh-Hant",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512-maskable.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}

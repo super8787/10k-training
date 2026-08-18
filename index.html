@@ -1,0 +1,70 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover,maximum-scale=1">
+<title>10K 教練</title>
+<meta name="description" content="11 週從 2K 到 10K 的訓練計畫">
+<link rel="manifest" href="manifest.json">
+<meta name="theme-color" content="#0B0E11">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="10K 教練">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" href="icons/icon-192.png">
+<link rel="stylesheet" href="style.css?v=7">
+</head>
+<body>
+
+<div id="boot" class="boot">
+  <div class="boot-mark">10K</div>
+  <div class="boot-msg">載入課表中…</div>
+</div>
+
+<div id="app" hidden>
+  <header class="topbar">
+    <div class="topbar-in">
+      <div class="brand">
+        <span class="brand-mark">10K</span>
+        <span class="brand-sub" id="brandSub">教練</span>
+      </div>
+      <div class="countdown" id="countdown"></div>
+    </div>
+  </header>
+
+  <main id="view" class="view"></main>
+
+  <nav class="tabbar" id="tabbar">
+    <button class="tab" data-tab="today" aria-label="今天">
+      <svg viewBox="0 0 24 24"><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/><circle cx="12" cy="12" r="5"/></svg>
+      <span>今天</span></button>
+    <button class="tab" data-tab="week" aria-label="本週">
+      <svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2"/><path d="M3 10h18M8 3v4M16 3v4"/></svg>
+      <span>本週</span></button>
+    <button class="tab" data-tab="all" aria-label="全期">
+      <svg viewBox="0 0 24 24"><path d="M4 19V9M10 19V5M16 19v-7M22 19H2"/></svg>
+      <span>全期</span></button>
+    <button class="tab" data-tab="data" aria-label="數據">
+      <svg viewBox="0 0 24 24"><path d="M3 15l5-6 4 4 5-7 4 5"/></svg>
+      <span>數據</span></button>
+    <button class="tab" data-tab="coach" aria-label="教練">
+      <svg viewBox="0 0 24 24"><path d="M12 3l8 4v6c0 4.4-3.4 7.4-8 8-4.6-.6-8-3.6-8-8V7z"/><path d="M9 12l2 2 4-4"/></svg>
+      <span>教練</span></button>
+  </nav>
+</div>
+
+<div id="sheet" class="sheet" hidden>
+  <div class="sheet-backdrop" data-close></div>
+  <div class="sheet-panel" role="dialog" aria-modal="true" aria-labelledby="sheetTitle">
+    <div class="sheet-grip"></div>
+    <h2 id="sheetTitle" class="sheet-title">記錄今天</h2>
+    <div id="sheetBody"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast" hidden></div>
+
+<script src="coach.js?v=7"></script>
+<script src="app.js?v=7"></script>
+</body>
+</html>
