@@ -394,10 +394,13 @@ function sparkline(vals, opt) {
   var d = pts.map(function (p, i) { return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); }).join(' ');
   var band = '';
   if (opt.bandLo != null && opt.bandHi != null) {
+    // y 與 height 都要夾在框內，否則調 band 範圍時 rect 會溢出（目前保底值走不到，先堵住）
     var y1 = pad + (hgt - pad * 2) * (1 - (opt.bandHi - min) / (max - min));
     var y2 = pad + (hgt - pad * 2) * (1 - (opt.bandLo - min) / (max - min));
-    band = '<rect x="0" y="' + Math.max(0, y1).toFixed(1) + '" width="' + w +
-      '" height="' + Math.max(0, y2 - y1).toFixed(1) +
+    var yTop = Math.min(hgt, Math.max(0, y1));
+    var yBot = Math.min(hgt, Math.max(0, y2));
+    band = '<rect x="0" y="' + yTop.toFixed(1) + '" width="' + w +
+      '" height="' + Math.max(0, yBot - yTop).toFixed(1) +
       '" fill="var(--green)" opacity="0.13"/>';
   }
   var dots = pts.map(function (p, i) {
@@ -470,10 +473,15 @@ function renderData() {
   if (cads.length >= 2) {
     var cv = cads.map(function (d) { return S.logs[d.date].cadence; });
     h += '<div class="sec-h"><h2>步頻趨勢</h2><span>越高越好，目標 165</span></div><div class="card">';
+    // 徽章門檻要跟圖上的點色與綠區一致（≥160 才算達標），否則同一張卡會自相矛盾：
+    // 155 spm 曾經同時顯示綠色 ✓、琥珀色的點、以及落在綠區外的位置。
+    var lastCad = cv[cv.length - 1];
+    var badge = lastCad >= 160 ? ['up', '✓ 達標']
+              : lastCad >= 150 ? ['warn', '差 ' + (160 - lastCad)]
+              : ['down', '偏低'];
     h += '<div class="kv" style="border:none;padding-top:0"><div class="kv-k">最近一次</div>' +
-      '<div class="kv-v">' + cv[cv.length - 1] + ' <small>spm</small>' +
-      '<span class="delta ' + (cv[cv.length - 1] >= 150 ? 'up' : 'down') + '">' +
-      (cv[cv.length - 1] >= 150 ? '✓' : '偏低') + '</span></div></div>';
+      '<div class="kv-v">' + esc(lastCad) + ' <small>spm</small>' +
+      '<span class="delta ' + badge[0] + '">' + badge[1] + '</span></div></div>';
     var cDeriv = cads.map(function (d) { return S.logs[d.date].cadenceDerived === true; });
     var nDeriv = cDeriv.filter(Boolean).length;
     // y 範圍要跟著資料走。寫死 135-175 會把最該被看見的值畫到框外——
@@ -832,8 +840,14 @@ function ingestURL() {
   ['km', 'durationMin', 'hrAvg', 'restingHr'].forEach(function (k) {
     if (raw[k] == null && prev[k] != null) raw[k] = prev[k];
   });
-  var reusedCad = false;
-  if (raw.cadence == null && prev.cadence != null) {
+  var reusedCad = false, keptMeasured = false;
+  var prevMeasured = (prev.cadence != null && prev.cadenceDerived !== true);
+  if (derived && prevMeasured) {
+    // 🔴 換算值不得覆蓋手動填的實測值。
+    //    ①量測值永遠優於估計值 ②R5 只認實測值，被蓋掉就等於永久失去那個資料點。
+    //    捷徑直接給的 cad 不受此限（那也是量測值，走 derived=false 這條）。
+    raw.cadence = prev.cadence; derived = false; keptMeasured = true;
+  } else if (raw.cadence == null && prev.cadence != null) {
     raw.cadence = prev.cadence; reusedCad = true;
     if (prev.cadenceDerived === true) raw.cadenceDerived = true;
   } else if (derived) {
@@ -844,7 +858,9 @@ function ingestURL() {
   S.logs[d] = o; save();
   history.replaceState(null, '', location.pathname);
   toast('已從手錶同步 ' + md(d) +
-    (derived ? '（步頻為換算值）' : reusedCad ? '（步頻沿用原紀錄）' : ''));
+    (derived ? '（步頻為換算值）'
+     : keptMeasured ? '（步頻保留你填的實測值）'
+     : reusedCad ? '（步頻沿用原紀錄）' : ''));
   return true;
 }
 
