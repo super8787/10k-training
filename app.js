@@ -13,10 +13,16 @@ var KEY = 'coach10k.v1';
    第一次是徽章(150) vs 圖上點色/綠區(160)；
    第二次是我只修了數據頁，今天頁的徽章還留著舊門檻。
    所以門檻與配色一律從這裡取，不要在各處重寫數字。 */
-var CAD = { warn: 150, good: 160, target: 165, min: 60, max: 260 };
-/* 心率的可接受範圍。三處（淨化層／捷徑參數／步進器）必須用同一組，
-   否則捷徑同步進來的值會在使用者一碰步進器時被默默夾掉。 */
-var HR = { min: 30, max: 250 };
+var CAD = {
+  warn:   Coach.RULES.CADENCE_MIN,     // 與 R5 判定門檻同一個數字
+  target: Coach.RULES.CADENCE_TARGET,  // 與教練引擎的目標步頻同一個數字
+  good:   160, min: 60, max: 260
+};
+var HR = {
+  min: 30, max: 250,
+  easyCeil:   Coach.RULES.HR_EASY_CEIL,    // Z2 上限，UI 顯示「✓ Z2」的門檻
+  steadyCeil: Coach.RULES.HR_STEADY_CEIL   // Z3 上限，UI 顯示「偏高」的門檻
+};
 function cadenceBadge(v) {
   return v >= CAD.good ? ['up', '✓ 達標']
        : v >= CAD.warn ? ['warn', '差 ' + (CAD.good - v)]
@@ -25,6 +31,19 @@ function cadenceBadge(v) {
 function cadenceColor(v) {
   return v >= CAD.good ? 'var(--green)'
        : v >= CAD.warn ? 'var(--amber)' : 'var(--red)';
+}
+/* 心率的判定同樣只能有一份。踩過：徽章判 `<=144` 就給「✓ Z2」，
+   但 45 bpm 也 <=144，於是同一列出現「低於 Z1 ✓ Z2」自相矛盾。
+   「在 Z2 帶內」必須是雙邊條件，跟圖上的點色、zoneOf 用同一套。 */
+function inZ2(v) {
+  var Z = PLAN.meta.zones;
+  return v >= Z.Z2.lo && v <= Z.Z2.hi;
+}
+function hrColor(v) {
+  var Z = PLAN.meta.zones;
+  return v > Z.Z3.hi ? 'var(--red)'
+       : v > Z.Z2.hi ? 'var(--amber)'
+       : v >= Z.Z2.lo ? 'var(--green)' : 'var(--accent)';
 }
 var PLAN = null, S = null, TAB = 'today';
 
@@ -265,9 +284,9 @@ function logCard(date, lg, sess) {
   if (lg.km && lg.durationMin) rows.push(['平均配速', pace(lg.km, lg.durationMin) + ' <small>/km</small>']);
   if (lg.hrAvg) {
     var z = zoneOf(lg.hrAvg), warn = '';
-    if ((sess.kind === 'easy' || sess.kind === 'long') && lg.hrAvg > 160)
+    if ((sess.kind === 'easy' || sess.kind === 'long') && lg.hrAvg > HR.steadyCeil)
       warn = ' <span class="delta down">偏高</span>';
-    else if (lg.hrAvg <= 144) warn = ' <span class="delta up">✓ Z2</span>';
+    else if (inZ2(lg.hrAvg)) warn = ' <span class="delta up">✓ Z2</span>';
     rows.push(['平均心率', esc(lg.hrAvg) + ' <small>bpm · ' + esc(z) + '</small>' + warn]);
   }
   if (lg.cadence) {
@@ -311,6 +330,7 @@ function baselineCard() {
 
 function zoneOf(hr) {
   var z = PLAN.meta.zones, names = ['Z1', 'Z2', 'Z3', 'Z4', 'Z5'];
+  if (hr < z.Z1.lo) return '低於 Z1';   // 45 bpm 不該顯示成「Z1 恢復」
   for (var i = 0; i < names.length; i++) {
     if (hr <= z[names[i]].hi) return names[i] + ' ' + z[names[i]].name;
   }
@@ -482,13 +502,7 @@ function renderData() {
       min: Math.min(110, Math.min.apply(null, hv) - 5),
       max: Math.max(190, Math.max.apply(null, hv) + 5),
       bandLo: Z.Z2.lo, bandHi: Z.Z2.hi,
-      // 綠色只給「真的落在 Z2 帶內」的點。低於 Z2 下緣是更輕鬆（不是問題，但也不在帶內），
-      // 用 accent 色標示，不要謊稱達標。
-      dotColor: function (v) {
-        return v > Z.Z3.hi ? 'var(--red)'
-             : v > Z.Z2.hi ? 'var(--amber)'
-             : v >= Z.Z2.lo ? 'var(--green)' : 'var(--accent)';
-      }
+      dotColor: hrColor
     });
     h += '<div class="muted center" style="margin-top:6px">綠色區塊 = Z2（' +
       Z.Z2.lo + '-' + Z.Z2.hi + '）。點落在綠區裡才算跑對。</div>';
@@ -500,7 +514,7 @@ function renderData() {
   var cads = done.filter(function (d) { return S.logs[d.date].cadence; });
   if (cads.length >= 2) {
     var cv = cads.map(function (d) { return S.logs[d.date].cadence; });
-    h += '<div class="sec-h"><h2>步頻趨勢</h2><span>越高越好，目標 165</span></div><div class="card">';
+    h += '<div class="sec-h"><h2>步頻趨勢</h2><span>越高越好，目標 ' + CAD.target + '</span></div><div class="card">';
     // 徽章門檻要跟圖上的點色與綠區一致（≥160 才算達標），否則同一張卡會自相矛盾：
     // 155 spm 曾經同時顯示綠色 ✓、琥珀色的點、以及落在綠區外的位置。
     var lastCad = cv[cv.length - 1];
@@ -654,10 +668,10 @@ function drawSheet(sess) {
     h += '</div></div>';
   }
 
-  h += stepField('距離', 'km', draft.km, 'km', 0.1, 0, 30, 1);
-  h += stepField('時間', 'durationMin', draft.durationMin, '分', 1, 0, 300, 0);
-  h += stepField('平均心率', 'hrAvg', draft.hrAvg, 'bpm', 1, HR.min, HR.max, 0, '手錶上那個數字');
-  h += stepField('步頻', 'cadence', draft.cadence, 'spm', 1, CAD.min, CAD.max, 0, '目標 ' + (sess.cadence || CAD.target));
+  h += stepField('距離', 'km', draft.km, 'km', 0.1, 1);
+  h += stepField('時間', 'durationMin', draft.durationMin, '分', 1, 0);
+  h += stepField('平均心率', 'hrAvg', draft.hrAvg, 'bpm', 1, 0, '手錶上那個數字');
+  h += stepField('步頻', 'cadence', draft.cadence, 'spm', 1, 0, '目標 ' + (sess.cadence || CAD.target));
 
   h += '<div class="field"><div class="field-l">跑起來的感覺<em>可略過</em></div><div class="chips">';
   ['很輕鬆', '輕鬆', '有點喘', '很喘', '快掛了'].forEach(function (t, i) {
@@ -670,7 +684,7 @@ function drawSheet(sess) {
     h += '<div class="focus">換算平均配速：<b>' + pace(draft.km, draft.durationMin) + ' / 公里</b></div>';
   }
   if (draft.hrAvg) {
-    var over = (sess.kind === 'easy' || sess.kind === 'long') && draft.hrAvg > 160;
+    var over = (sess.kind === 'easy' || sess.kind === 'long') && draft.hrAvg > HR.steadyCeil;
     h += '<div class="focus' + (over ? ' alert' : '') + '">心率 ' + draft.hrAvg + ' = <b>' +
       zoneOf(draft.hrAvg) + '</b>' + (over ? '　⚠️ 這堂課跑太快了' : '') + '</div>';
   }
@@ -679,7 +693,13 @@ function drawSheet(sess) {
   h += '<button class="btn ghost" data-close>關閉</button></div>';
   $('#sheetBody').innerHTML = h;
 }
-function stepField(label, key, val, unit, step, min, max, dec, hint) {
+/* 🔴 範圍不接受呼叫端傳入，一律從 LOG_NUM 取。
+   踩過的坑：步進器寫 km[0,30]／min[0,300] 但淨化層是 [0,100]／[0,600]，
+   捷徑同步進 42.2km／420分之後，使用者按一下步進器就被夾成 30／300 並存檔＝靜默資料破壞。
+   兩處各寫一份範圍遲早會漂移，所以直接拿掉「各寫一份」的可能性。 */
+function stepField(label, key, val, unit, step, dec, hint) {
+  var sp = LOG_NUM[key];
+  var min = sp[0], max = sp[1];
   var shown = val == null ? '—' : (dec ? Number(val).toFixed(dec) : Math.round(val));
   return '<div class="field"><div class="field-l">' + label +
     (hint ? '<em>' + esc(hint) + '</em>' : '<em>可留空</em>') + '</div>' +
@@ -704,7 +724,7 @@ function onTap(e) {
     var cur = draft[k];
     if (cur == null) {
       var sess0 = sessionOf(draft.date);
-      cur = k === 'hrAvg' ? 140 : k === 'cadence' ? (sess0.cadence || 155) : 0;
+      cur = k === 'hrAvg' ? 140 : k === 'cadence' ? (sess0.cadence || CAD.target) : 0;
     } else {
       cur = cur + dir * s;
     }
@@ -727,13 +747,14 @@ function onTap(e) {
 
   if (a === 'done') {
     var d = today();
-    S.logs[d] = Object.assign({}, S.logs[d], { done: true, completedAt: new Date().toISOString(), source: 'manual' });
+    S.logs[d] = Object.assign({}, S.logs[d], { done: true, skipped: false,
+      completedAt: new Date().toISOString(), source: 'manual' });
     save(); render(); toast('已完成 ✓');
     setTimeout(function () { openSheet(d); }, 260);
   }
   else if (a === 'skip') {
     var d2 = today();
-    S.logs[d2] = Object.assign({}, S.logs[d2], { done: false, skipped: true });
+    S.logs[d2] = { done: false, skipped: true, completedAt: new Date().toISOString() };
     save(); render(); toast('記錄為沒跑。明天繼續。');
   }
   else if (a === 'log') openSheet(today());
@@ -839,14 +860,19 @@ function ingestURL() {
     var v = parseFloat(q.get(k));
     return (isFinite(v) && v >= min && v <= max) ? v : null;
   };
+  // 對應到紀錄欄位的參數，範圍一律取自 LOG_NUM（同上，不留第二份定義）
+  var numField = function (param, field) {
+    var sp = LOG_NUM[field];
+    return num(param, sp[0], sp[1]);
+  };
   var prev = S.logs[d] || {};
 
   // 1. 這次 URL 帶來的值
-  var uKm  = num('km',  0,  100),
-      uMin = num('min', 0,  600),
-      uHr  = num('hr',  HR.min, HR.max),
-      uCad = num('cad', CAD.min, CAD.max),
-      uRhr = num('rhr', 30, 140);
+  var uKm  = numField('km',  'km'),
+      uMin = numField('min', 'durationMin'),
+      uHr  = numField('hr',  'hrAvg'),
+      uCad = numField('cad', 'cadence'),
+      uRhr = numField('rhr', 'restingHr');
 
   // 2. 步頻換算 —— 只用這次的 min／km，不混用舊資料
   var cadence = uCad, derived = false;

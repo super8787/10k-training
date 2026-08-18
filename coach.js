@@ -11,7 +11,8 @@
   var R = {
     HR_EASY_CEIL: 144,   // Z2 上限
     HR_STEADY_CEIL: 160, // Z3 上限；easy/long 課超過就算跑太快
-    CADENCE_MIN: 150,
+    CADENCE_MIN: 150,    // R5 判定門檻；app.js 的 CAD.warn 直接引用這個值
+    CADENCE_TARGET: 165, // 目標步頻；課表沒指定時的 fallback
     MISS_STREAK: 2,      // 連續幾次沒完成就降階
     GOOD_STREAK: 3,      // 連續幾次達標就加量
     LONG_CUT: 0.80,      // R2 降階時長跑乘數
@@ -45,6 +46,9 @@
     logs = logs || {};
     todayStr = todayStr || ymd(new Date());
     var days = plan.days;
+    // Z2 下緣取自課表 meta，不在文案裡硬編
+    var zoneLo = (plan.meta && plan.meta.zones && plan.meta.zones.Z2)
+      ? plan.meta.zones.Z2.lo : R.HR_EASY_CEIL - 24;
     var advices = [];
     var adj = {
       paceSlowdownSec: 0,
@@ -76,9 +80,11 @@
         id: 'R1', level: hotOnes.length >= 2 ? 'crit' : 'hot', icon: '🔥',
         title: '你又跑太快了',
         detail: '最近 ' + hotOnes.length + ' 次輕鬆／長跑的平均心率超過 ' +
-          R.HR_STEADY_CEIL + '（最近一次 ' + lastHr + '）。輕鬆跑該落在 120-144。' +
+          R.HR_STEADY_CEIL + '（最近一次 ' + lastHr + '）。輕鬆跑該落在 ' +
+          zoneLo + '-' + R.HR_EASY_CEIL + '。' +
           '下一次同類型的課，配速主動放慢 ' + R.PACE_SLOWDOWN +
-          ' 秒/公里，長跑目標時間先打 9 折。慢下來不是退步，是唯一能讓你跑完 10K 的路。',
+          ' 秒/公里，長跑目標時間先打 ' + Math.round(R.LONG_CUT_SOFT * 10) +
+          ' 折。慢下來不是退步，是唯一能讓你跑完 10K 的路。',
         rule: 'R1｜easy/long 課平均心率 > ' + R.HR_STEADY_CEIL + ' bpm'
       });
     }
@@ -293,7 +299,7 @@
       notes.push('配速主動放慢 ' + adj.paceSlowdownSec + ' 秒/公里');
     }
     if (adj.forceCadenceDrill && s.kind === 'quality') {
-      notes.push('這堂務必開節拍器（' + (s.cadence || 160) + ' spm）');
+      notes.push('這堂務必開節拍器（' + (s.cadence || R.CADENCE_TARGET) + ' spm）');
     }
     if (adj.runWalkMode && s.kind === 'long') {
       notes.push('已切換跑走交替模式：跑 8 分／走 1 分，重複到達標');
