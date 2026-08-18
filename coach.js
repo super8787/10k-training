@@ -298,34 +298,57 @@
     var s = Object.assign({}, sess), notes = [];
     if (adj.longRunFactor !== 1 && (s.kind === 'long')) {
       var f = adj.longRunFactor;
-      var walk = s.totalMin - s.runMin;   // 走路（暖身/緩和）時間不隨降階變動
-      var m0 = s.runMin, k0 = s.km;
-      s.runMin = Math.round(s.runMin * f);
-      s.totalMin = s.runMin + walk;
-      if (s.km) { s.km = Math.round(s.km * f * 10) / 10; }
+      var m0 = s.runMin, k0 = s.km, t0 = s.totalMin;
+
+      /* ── 走跑交替的課要調「組數」，不是把它改成連續跑 ──
+         指示句長這樣：「走 5 分暖身 →（跑 3 分／走 2 分）×5 → 走 5 分緩和」
+         Block 1-2 刻意用交替，不能為了對數字就寫成「連續跑 12 分」。
+         正確做法是動組數：×5 → ×4，跑步時間跟著變 15 → 12。 */
+      var iv = /（跑\s*([\d.]+)\s*分／走\s*([\d.]+)\s*分）×(\d+)/.exec(s.detail || '');
+      if (iv && !k0) {
+        var runPer = parseFloat(iv[1]), walkPer = parseFloat(iv[2]), reps0 = parseInt(iv[3], 10);
+        var fixed = t0 - (runPer + walkPer) * reps0;           // 暖身＋緩和，不動
+        var reps = Math.max(1, Math.round(m0 * f / runPer));
+        s.runMin = Math.round(runPer * reps);
+        s.totalMin = Math.round(fixed + (runPer + walkPer) * reps);
+        s.detail = s.detail.replace(iv[0],
+          '（跑 ' + iv[1] + ' 分／走 ' + iv[2] + ' 分）×' + reps);
+        notes.push('組數 ×' + reps0 + ' → ×' + reps + '（跑步時間 ' + m0 + ' → ' + s.runMin + ' 分）');
+      } else {
+        var walk = t0 - m0;                                    // 走路時間不隨降階變動
+        s.runMin = Math.round(m0 * f);
+        s.totalMin = s.runMin + walk;
+        if (s.km) { s.km = Math.round(s.km * f * 10) / 10; }
+      }
+
       /* 三個欄位都要改寫。只改 title 的話，同一張卡會出現
          標題「連續 23 分」＋指示句「連續跑 25 分不停」＋重點句「約 54 分鐘」互相打架。 */
       ['title', 'detail', 'focus'].forEach(function (fld) {
         if (k0) s[fld] = retitle(s[fld], k0, s.km);
         s[fld] = retitle(s[fld], m0, s.runMin);
       });
+
       /* retitle 只在數字唯一出現時才換（換錯位置比不換更糟）。
          碰到「走 8 分暖身 → 連續跑 8 K」這種同一個數字出現兩次的句子它會放棄，
          留下半舊半新的指示。與其讓使用者看到矛盾的兩個數字，不如整句重講。 */
-      var stale = k0
-        ? new RegExp('(?:^|[^0-9.])' + String(k0).replace('.', '\\.') + '\\s*(?:K|公里)')
-        : new RegExp('連續跑\\s*' + m0 + '\\s*分');
-      if (stale.test(s.detail)) {
-        s.detail = '走 ' + Math.round(walk / 2) + ' 分暖身 → ' +
-          (s.km ? '連續跑 ' + s.km + ' K' : '連續跑 ' + s.runMin + ' 分不停') +
-          ' → 走 ' + (walk - Math.round(walk / 2)) + ' 分緩和';
-        notes.push('指示已依調整後的目標重寫');
+      if (!iv) {
+        var stale = k0
+          ? new RegExp('(?:^|[^0-9.])' + String(k0).replace('.', '\\.') + '\\s*(?:K|公里)')
+          : new RegExp('連續跑\\s*' + m0 + '\\s*分');
+        if (stale.test(s.detail)) {
+          var w = s.totalMin - s.runMin;
+          s.detail = '走 ' + Math.round(w / 2) + ' 分暖身 → ' +
+            (s.km ? '連續跑 ' + s.km + ' K' : '連續跑 ' + s.runMin + ' 分不停') +
+            ' → 走 ' + (w - Math.round(w / 2)) + ' 分緩和';
+          notes.push('指示已依調整後的目標重寫');
+        }
       }
+
       if (k0) {
         notes.push('長跑目標 ' + k0 + ' K → ' + s.km + ' K（' +
           (f < 1 ? '降階' : '加量') + ' ' + Math.round(Math.abs(f - 1) * 100) + '%，' +
           '預估用時 ' + m0 + ' → ' + s.runMin + ' 分）');
-      } else {
+      } else if (!iv) {
         notes.push('長跑目標 ' + m0 + ' 分 → ' + s.runMin + ' 分（' +
           (f < 1 ? '降階' : '加量') + ' ' + Math.round(Math.abs(f - 1) * 100) + '%）');
       }

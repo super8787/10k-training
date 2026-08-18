@@ -200,7 +200,10 @@ function sessionBlock(sess, adj) {
     h += '<div class="focus warn"><b>教練已調整這堂課</b><br>' +
       notes.map(esc).join('<br>') + '</div>';
   }
-  h += '<div class="focus">' + esc(sess.focus) + '</div>';
+  // 必須用 s（調整後）不是 sess（原始）。
+  // 驗收抓到：coach.js 已經把 focus 改寫好，但這裡畫的是原始物件，
+  // 於是「標題 4.8 公里／數字卡 43 分」旁邊還留著「約 54 分鐘」。
+  h += '<div class="focus">' + esc(s.focus) + '</div>';
 
   if (sess.checkpoint) {
     h += '<div class="focus alert"><b>🚩 檢查點 ' + esc(sess.checkpoint.id) + '</b><br>' +
