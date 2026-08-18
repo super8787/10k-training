@@ -76,9 +76,13 @@ function sanitizeLog(raw) {
   if (raw.source === 'shortcut' || raw.source === 'manual') o.source = raw.source;
   if (raw.cadenceDerived === true) o.cadenceDerived = true;
   // 只收 ISO 格式，不要讓任意字串（含 XSS payload）留在 store 裡等下游踩
+  // 形狀對還不夠：2026-99-99T99:99:99Z 也符合正則。用 Date 往返比對確認真的是那個時刻。
   if (typeof raw.completedAt === 'string' &&
-      /^\d{4}-\d{2}-\d{2}T[\d:.]+Z?$/.test(raw.completedAt)) {
-    o.completedAt = raw.completedAt;
+      /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(raw.completedAt)) {
+    var dt = new Date(raw.completedAt);
+    if (!isNaN(dt.getTime()) && dt.toISOString() === raw.completedAt) {
+      o.completedAt = raw.completedAt;
+    }
   }
   return o;
 }
@@ -603,12 +607,16 @@ function renderCoach() {
   h += '</div>';
 
   h += '<div class="sec-h"><h2>全部規則</h2><span>沒有黑箱</span></div><div class="card">';
-  // 門檻一律讀 Coach.RULES，不要在這裡重打數字——兩邊各寫一份遲早會漂移
-  var CR = Coach.RULES;
-  [['R1', '輕鬆／長跑平均心率 > ' + CR.HR_STEADY_CEIL,
+  // 門檻一律讀真值，不要在這裡重打數字。
+  // ⚠️ 心率要走 hrT()（唯一來源＝plan.meta.zones）；CR.HR_EASY_CEIL／HR_STEADY_CEIL
+  //    現在只是 coach.js 的 fallback，讀它們會在 HRmax 改動後顯示舊數字。
+  var CR = Coach.RULES, TZ = hrT();
+  [['R1', '輕鬆／長跑平均心率 > ' + TZ.steadyCeil,
     '下次放慢 ' + CR.PACE_SLOWDOWN + ' 秒/km，長跑打 ' + Math.round(CR.LONG_CUT_SOFT * 10) + ' 折'],
    ['R2', '連續 ' + CR.MISS_STREAK + ' 堂沒完成', '長跑降到 ' + Math.round(CR.LONG_CUT * 100) + '%'],
-   ['R3', '連續 ' + CR.GOOD_STREAK + ' 次輕鬆跑心率 ≤ ' + CR.HR_EASY_CEIL,
+   // 原本寫「心率 ≤ 144」，但實際判定是雙邊的 inZone2——110 bpm 符合「≤144」卻不觸發 R3。
+   // 這一頁的標題是「沒有黑箱」，寫錯規則比別頁嚴重。
+   ['R3', '連續 ' + CR.GOOD_STREAK + ' 次輕鬆跑心率落在 Z2（' + TZ.z2lo + '-' + TZ.easyCeil + '）',
     '長跑加 ' + Math.round((CR.LONG_BOOST - 1) * 100) + '%'],
    ['R4', '靜止心率比近期均值高 ≥ ' + CR.RHR_JUMP + '　<b style="color:var(--amber)">（需接手錶捷徑才會啟用）</b>', '建議今天休息'],
    ['R5', '最近 ' + CR.GOOD_STREAK + ' 次<b>實測</b>步頻平均 < ' + CR.CADENCE_MIN +

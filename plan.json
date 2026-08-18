@@ -14,25 +14,25 @@
     "talk": "唱歌沒問題"
    },
    "Z2": {
-    "lo": 120,
+    "lo": 121,
     "hi": 144,
     "name": "輕鬆跑",
     "talk": "能完整講一句話"
    },
    "Z3": {
-    "lo": 144,
+    "lo": 145,
     "hi": 160,
     "name": "穩定跑",
     "talk": "只能講短句"
    },
    "Z4": {
-    "lo": 160,
+    "lo": 161,
     "hi": 176,
     "name": "閾值",
     "talk": "只能蹦單字"
    },
    "Z5": {
-    "lo": 176,
+    "lo": 177,
     "hi": 200,
     "name": "最大",
     "talk": "講不出話"
@@ -163,7 +163,7 @@
    "runMin": 12,
    "totalMin": 34,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "全程只看心率，不看配速。破 155 就走，掉回 135 再跑。",
    "cadence": 150,
@@ -171,7 +171,7 @@
    "checkpoint": null,
    "hrGate": {
     "walkAbove": 155,
-    "runBelow": 135
+    "runBelow": 132
    }
   },
   {
@@ -188,7 +188,7 @@
    "runMin": 10,
    "totalMin": 30,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "節拍器設 150。你目前 143，先小步快踩，不要跨大步。",
    "cadence": 150,
@@ -196,7 +196,7 @@
    "checkpoint": null,
    "hrGate": {
     "walkAbove": 155,
-    "runBelow": 135
+    "runBelow": 132
    }
   },
   {
@@ -213,7 +213,7 @@
    "runMin": 12,
    "totalMin": 44,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "核心：棒式 3×30 秒、臀橋 3×15、死蟲 3×10（左右各）",
    "cadence": 150,
@@ -221,7 +221,7 @@
    "checkpoint": null,
    "hrGate": {
     "walkAbove": 155,
-    "runBelow": 135
+    "runBelow": 132
    }
   },
   {
@@ -238,7 +238,7 @@
    "runMin": 15,
    "totalMin": 35,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "本週最重要的一堂。跑不動就多走，但時間要走滿。",
    "cadence": 150,
@@ -246,7 +246,7 @@
    "checkpoint": null,
    "hrGate": {
     "walkAbove": 155,
-    "runBelow": 135
+    "runBelow": 132
    }
   },
   {
@@ -263,7 +263,7 @@
    "runMin": 12,
    "totalMin": 30,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "破 155 就走，掉回 135 再跑。",
    "cadence": 152,
@@ -271,7 +271,7 @@
    "checkpoint": null,
    "hrGate": {
     "walkAbove": 155,
-    "runBelow": 135
+    "runBelow": 132
    }
   },
   {
@@ -288,7 +288,7 @@
    "runMin": 12,
    "totalMin": 30,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "節拍器 152。注意腳落地的位置在身體正下方，不要往前伸。",
    "cadence": 152,
@@ -296,7 +296,7 @@
    "checkpoint": null,
    "hrGate": {
     "walkAbove": 155,
-    "runBelow": 135
+    "runBelow": 132
    }
   },
   {
@@ -313,7 +313,7 @@
    "runMin": 12,
    "totalMin": 40,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "核心：棒式 3×30 秒、臀橋 3×15、死蟲 3×10（左右各）",
    "cadence": 152,
@@ -321,7 +321,7 @@
    "checkpoint": null,
    "hrGate": {
     "walkAbove": 155,
-    "runBelow": 135
+    "runBelow": 132
    }
   },
   {
@@ -338,7 +338,7 @@
    "runMin": 20,
    "totalMin": 40,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "第一次單段跑到 4 分鐘。撐不住就降回 3 分，不要硬撐到心率爆表。",
    "cadence": 152,
@@ -346,7 +346,7 @@
    "checkpoint": null,
    "hrGate": {
     "walkAbove": 155,
-    "runBelow": 135
+    "runBelow": 132
    }
   },
   {
@@ -363,7 +363,7 @@
    "runMin": 10,
    "totalMin": 30,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "刻意放慢。這週的任務是恢復。",
    "cadence": 155,
@@ -371,7 +371,7 @@
    "checkpoint": null,
    "hrGate": {
     "walkAbove": 155,
-    "runBelow": 135
+    "runBelow": 132
    }
   },
   {
@@ -388,7 +388,7 @@
    "runMin": 8,
    "totalMin": 26,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "節拍器拉到 155。跑短一點沒關係，步頻要準。",
    "cadence": 155,
@@ -396,7 +396,7 @@
    "checkpoint": null,
    "hrGate": {
     "walkAbove": 155,
-    "runBelow": 135
+    "runBelow": 132
    }
   },
   {
@@ -413,7 +413,7 @@
    "runMin": 9,
    "totalMin": 34,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "核心：棒式 3×30 秒、臀橋 3×15、死蟲 3×10（左右各）",
    "cadence": 155,
@@ -421,7 +421,7 @@
    "checkpoint": null,
    "hrGate": {
     "walkAbove": 155,
-    "runBelow": 135
+    "runBelow": 132
    }
   },
   {
@@ -438,7 +438,7 @@
    "runMin": 12,
    "totalMin": 28,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "Block 1 收尾。下週開始要連續跑了。",
    "cadence": 155,
@@ -446,7 +446,7 @@
    "checkpoint": null,
    "hrGate": {
     "walkAbove": 155,
-    "runBelow": 135
+    "runBelow": 132
    }
   },
   {
@@ -463,7 +463,7 @@
    "runMin": 14,
    "totalMin": 24,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "★ 第一次連續跑。速度隨便多慢都可以，唯一的規則是不要停。",
    "cadence": 155,
@@ -471,7 +471,7 @@
    "checkpoint": null,
    "hrGate": {
     "walkAbove": 155,
-    "runBelow": 135
+    "runBelow": 132
    }
   },
   {
@@ -488,7 +488,7 @@
    "runMin": 14,
    "totalMin": 25,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "走的區段縮到 1 分鐘。節拍器 158。",
    "cadence": 158,
@@ -510,7 +510,7 @@
    "runMin": 14,
    "totalMin": 34,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "核心：棒式 3×45 秒、單腿臀橋 3×10（左右）、側棒式 2×30 秒",
    "cadence": 155,
@@ -532,7 +532,7 @@
    "runMin": 22,
    "totalMin": 38,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "兩個 11 分鐘的大區塊。中間那 3 分鐘走路是給你調呼吸的，不是休息。",
    "cadence": 155,
@@ -554,7 +554,7 @@
    "runMin": 16,
    "totalMin": 26,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "比你 8/18 那次慢 2 分鐘以上才是對的。",
    "cadence": 158,
@@ -576,7 +576,7 @@
    "runMin": 16,
    "totalMin": 27,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "節拍器 160。到這裡你的觸地時間應該從 289ms 開始往下掉。",
    "cadence": 160,
@@ -598,7 +598,7 @@
    "runMin": 16,
    "totalMin": 36,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "核心：棒式 3×45 秒、單腿臀橋 3×10（左右）、側棒式 2×30 秒",
    "cadence": 158,
@@ -620,7 +620,7 @@
    "runMin": 25,
    "totalMin": 35,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "★ 長跑第一次全程連續。慢慢跑，不要停。",
    "cadence": 158,
@@ -642,7 +642,7 @@
    "runMin": 18,
    "totalMin": 28,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "維持 Z2。",
    "cadence": 160,
@@ -664,7 +664,7 @@
    "runMin": 18,
    "totalMin": 29,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "節拍器 163。快接近目標 165 了。",
    "cadence": 163,
@@ -686,7 +686,7 @@
    "runMin": 18,
    "totalMin": 38,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "核心：棒式 3×45 秒、單腿臀橋 3×10（左右）、側棒式 2×30 秒",
    "cadence": 160,
@@ -708,9 +708,9 @@
    "runMin": 29,
    "totalMin": 39,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
-   "focus": "到目前為止最長的連續跑。後段心率可以進 Z3（144-160）。",
+   "focus": "到目前為止最長的連續跑。後段心率可以進 Z3（145-160）。",
    "cadence": 160,
    "km": null,
    "checkpoint": null,
@@ -730,7 +730,7 @@
    "runMin": 10,
    "totalMin": 20,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "刻意放慢，為週日的檢查點留腿。",
    "cadence": 163,
@@ -752,7 +752,7 @@
    "runMin": 8,
    "totalMin": 19,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "節拍器 165 —— 目標步頻達陣。",
    "cadence": 165,
@@ -774,7 +774,7 @@
    "runMin": 5,
    "totalMin": 20,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "非常輕鬆。明天要測驗，今天只是讓腿記得怎麼跑。",
    "cadence": 165,
@@ -796,7 +796,7 @@
    "runMin": 35,
    "totalMin": 50,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "★ 決定後半段課表走向。跑完在 App 上回報「有沒有全程不停」。",
    "cadence": 165,
@@ -823,7 +823,7 @@
    "runMin": 13,
    "totalMin": 23,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "維持 Z2，步頻 165。",
    "cadence": 165,
@@ -841,13 +841,13 @@
    "weekNote": "從這週起長跑用公里算。品質課換成節奏跑，第一次碰 Z3。",
    "kind": "quality",
    "title": "★ 節奏跑（跑 15 分）",
-   "detail": "走 5 分暖身 → 輕鬆 4 分 → 節奏 7 分（Z3 144-160）→ 輕鬆 4 分 → 走 5 分緩和",
+   "detail": "走 5 分暖身 → 輕鬆 4 分 → 節奏 7 分（Z3 145-160）→ 輕鬆 4 分 → 走 5 分緩和",
    "runMin": 15,
    "totalMin": 25,
    "zone": "Z3",
-   "hrLo": 144,
+   "hrLo": 145,
    "hrHi": 160,
-   "focus": "★ 第一次節奏跑。Z3 = 只能講短句的強度，不是衝刺。",
+   "focus": "★ 第一次節奏跑。Z3（145-160）= 只能講短句的強度，不是衝刺。",
    "cadence": 165,
    "km": null,
    "checkpoint": null,
@@ -867,7 +867,7 @@
    "runMin": 13,
    "totalMin": 33,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "核心：棒式 3×45 秒、單腿臀橋 3×10（左右）、側棒式 2×30 秒",
    "cadence": 165,
@@ -889,7 +889,7 @@
    "runMin": 54,
    "totalMin": 64,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "★ 第一次用距離。目標 9'00\"/km 上下，約 54 分鐘。跑完比跑快重要。",
    "cadence": 165,
@@ -911,7 +911,7 @@
    "runMin": 15,
    "totalMin": 25,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "維持 Z2。",
    "cadence": 165,
@@ -933,7 +933,7 @@
    "runMin": 17,
    "totalMin": 27,
    "zone": "Z3",
-   "hrLo": 144,
+   "hrLo": 145,
    "hrHi": 160,
    "focus": "節奏段維持 7 分鐘，但前後的輕鬆段拉長。",
    "cadence": 167,
@@ -955,7 +955,7 @@
    "runMin": 14,
    "totalMin": 34,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "核心：棒式 3×45 秒、單腿臀橋 3×10（左右）、側棒式 2×30 秒",
    "cadence": 165,
@@ -977,7 +977,7 @@
    "runMin": 63,
    "totalMin": 73,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "約 63 分鐘。後段心率進 Z3 沒關係，但不要進 Z4（>160）。",
    "cadence": 165,
@@ -999,7 +999,7 @@
    "runMin": 16,
    "totalMin": 26,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "維持 Z2。",
    "cadence": 167,
@@ -1021,7 +1021,7 @@
    "runMin": 18,
    "totalMin": 28,
    "zone": "Z3",
-   "hrLo": 144,
+   "hrLo": 145,
    "hrHi": 160,
    "focus": "本計畫最後一次節奏跑。",
    "cadence": 167,
@@ -1043,7 +1043,7 @@
    "runMin": 14,
    "totalMin": 24,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "明天要跑 8K，今天保留。",
    "cadence": 167,
@@ -1065,7 +1065,7 @@
    "runMin": 72,
    "totalMin": 87,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "★ 賽前最長一跑。跑完 8K，10K 就在射程內了（+25%，標準減量幅度）。用比賽日想跑的配速跑。",
    "cadence": 167,
@@ -1092,7 +1092,7 @@
    "runMin": 20,
    "totalMin": 30,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "很輕鬆。不要因為緊張就跑快——賽前多跑不會變強，只會變累。",
    "cadence": 167,
@@ -1114,7 +1114,7 @@
    "runMin": 16,
    "totalMin": 30,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "加速只是喚醒神經，不是練體能。跑完應該覺得「還想再跑」。",
    "cadence": 170,
@@ -1136,7 +1136,7 @@
    "runMin": 10,
    "totalMin": 20,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "賽前一天。非常短、非常慢。今天早點睡，裝備前一晚全部擺好。",
    "cadence": 167,
@@ -1158,7 +1158,7 @@
    "runMin": 90,
    "totalMin": 110,
    "zone": "Z2",
-   "hrLo": 120,
+   "hrLo": 121,
    "hrHi": 144,
    "focus": "★ 前 2K 是全場最危險的地方——所有人都會衝，你不要。前 2K 心率壓在 150 以下，後面才有本錢。",
    "cadence": 167,
