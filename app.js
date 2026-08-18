@@ -365,7 +365,10 @@ function renderWeek() {
     esc(days[0].weekNote) + '</div></div>';
 
   h += '<div class="stack">';
-  days.forEach(function (d) {
+  days.forEach(function (d0) {
+    // 本週列表也要顯示調整後的數字。原本用原始物件，於是同一堂課
+    // 今天頁寫「跑 12 分」、本週列寫「跑 15 分」——跨頁兩個數字。
+    var d = Coach.applyAdjustments(d0, c.adjustments).session;
     var lg = S.logs[d.date] || {}, k = KIND[d.kind] || KIND.easy;
     var cls = 'day';
     if (d.date === t) cls += ' is-today';
@@ -674,7 +677,8 @@ function openSheet(date) {
     checkpointResult: lg.checkpointResult || null,
     date: date
   };
-  $('#sheetTitle').textContent = md(date) + '（週' + sess.weekday + '）' + sess.title;
+  var adjSess = Coach.applyAdjustments(sess, coachNow().adjustments).session;
+  $('#sheetTitle').textContent = md(date) + '（週' + adjSess.weekday + '）' + adjSess.title;
   drawSheet(sess);
   $('#sheet').hidden = false;
   document.body.style.overflow = 'hidden';
