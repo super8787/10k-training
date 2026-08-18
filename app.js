@@ -27,7 +27,11 @@ function sanitizeLog(raw) {
   var o = { done: raw.done === true };
   if (raw.skipped === true) o.skipped = true;
   Object.keys(LOG_NUM).forEach(function (k) {
-    var sp = LOG_NUM[k], v = Number(raw[k]);
+    var rv = raw[k];
+    // 缺值就是缺值，不要變成 0。Number(null)===0 會把「沒填」寫成「跑了 0 公里」，
+    // 真正的 0（例如休息日紀錄）會以數字 0 傳進來，不受影響。
+    if (rv === null || rv === undefined || rv === '') return;
+    var sp = LOG_NUM[k], v = Number(rv);
     if (isFinite(v) && v >= sp[0] && v <= sp[1]) {
       o[k] = sp[2] ? Math.round(v * 100) / 100 : Math.round(v);
     }
@@ -36,6 +40,7 @@ function sanitizeLog(raw) {
     o.checkpointResult = raw.checkpointResult;
   }
   if (raw.source === 'shortcut' || raw.source === 'manual') o.source = raw.source;
+  if (raw.cadenceDerived === true) o.cadenceDerived = true;
   if (typeof raw.completedAt === 'string' && raw.completedAt.length <= 40) {
     o.completedAt = raw.completedAt;
   }
@@ -246,7 +251,8 @@ function logCard(date, lg, sess) {
     else if (lg.hrAvg <= 144) warn = ' <span class="delta up">✓ Z2</span>';
     rows.push(['平均心率', esc(lg.hrAvg) + ' <small>bpm · ' + esc(z) + '</small>' + warn]);
   }
-  if (lg.cadence) rows.push(['步頻', esc(lg.cadence) + ' <small>spm</small>' +
+  if (lg.cadence) rows.push(['步頻', esc(lg.cadence) + ' <small>spm' +
+    (lg.cadenceDerived ? ' · 換算值' : '') + '</small>' +
     (lg.cadence < 150 ? ' <span class="delta down">偏低</span>' : ' <span class="delta up">✓</span>')]);
   if (lg.restingHr) rows.push(['靜止心率', esc(lg.restingHr) + ' <small>bpm</small>']);
   if (lg.rpe >= 1 && lg.rpe <= 5) rows.push(['體感', ['', '很輕鬆', '輕鬆', '有點喘', '很喘', '快掛了'][lg.rpe]]);
@@ -742,28 +748,70 @@ function doImport() {
   });
 }
 
-/* ── 捷徑帶參數進來（層 2）── */
+/* ── 捷徑帶參數進來（層 2）──
+   步頻的處理：HealthKit **沒有** cadence 這個型別（2026-08-19 查證 Apple 開發者論壇
+   thread/708208，官方回覆確認 iOS 16 只加了 runningPower/Speed/StrideLength/
+   VerticalOscillation/GroundContactTime，沒有 cadence），官方建議自己算。
+   所以這裡接受三種來源，依可靠度排序：
+     1. cad    捷徑直接給步頻（若未來 Apple 開放）
+     2. steps  步數 → 步頻 = 步數 ÷ 跑步分鐘
+     3. stride 步幅長度(公尺) → 步頻 = (公尺/分鐘) ÷ 步幅
+   算出來的步頻會標記 cadenceDerived，UI 上註明是換算值不是實測值。 */
 function ingestURL() {
   var q = new URLSearchParams(location.search);
   if (q.get('log') !== '1') return false;
   var d = q.get('date') || today();
   if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) d = today();
-  if (!sessionOf(d)) { toast(md(d) + ' 不是訓練日，已略過'); history.replaceState(null, '', location.pathname); return false; }
-  var prev = S.logs[d] || {};
-  var o = Object.assign({}, prev, { done: true, source: 'shortcut',
-    completedAt: prev.completedAt || new Date().toISOString() });
+  if (!sessionOf(d)) {
+    toast(md(d) + ' 不是訓練日，已略過');
+    history.replaceState(null, '', location.pathname);
+    return false;
+  }
   var num = function (k, min, max) {
     var v = parseFloat(q.get(k));
     return (isFinite(v) && v >= min && v <= max) ? v : null;
   };
-  var km = num('km', 0, 100); if (km != null) o.km = Math.round(km * 100) / 100;
-  var mn = num('min', 0, 600); if (mn != null) o.durationMin = Math.round(mn);
-  var hr = num('hr', 40, 240); if (hr != null) o.hrAvg = Math.round(hr);
-  var cd = num('cad', 60, 260); if (cd != null) o.cadence = Math.round(cd);
-  var rh = num('rhr', 30, 140); if (rh != null) o.restingHr = Math.round(rh);
+  var prev = S.logs[d] || {};
+  var raw = {
+    done: true, source: 'shortcut',
+    completedAt: prev.completedAt || new Date().toISOString(),
+    km:          num('km',  0,  100),
+    durationMin: num('min', 0,  600),
+    hrAvg:       num('hr',  40, 240),
+    cadence:     num('cad', 60, 260),
+    restingHr:   num('rhr', 30, 140),
+    rpe:         prev.rpe != null ? prev.rpe : null,
+    checkpointResult: prev.checkpointResult || null
+  };
+  // 缺值時沿用既有紀錄，不要把已經填好的資料清掉
+  ['km', 'durationMin', 'hrAvg', 'cadence', 'restingHr'].forEach(function (k) {
+    if (raw[k] == null && prev[k] != null) raw[k] = prev[k];
+  });
+
+  // 步頻換算（只在沒有直接值時才算）
+  var derived = false;
+  if (raw.cadence == null && raw.durationMin > 0) {
+    var steps = num('steps', 0, 100000);
+    if (steps != null) {
+      raw.cadence = Math.round(steps / raw.durationMin);
+      derived = true;
+    } else {
+      var stride = num('stride', 0.3, 2.5);
+      if (stride != null && raw.km > 0) {
+        raw.cadence = Math.round((raw.km * 1000 / raw.durationMin) / stride);
+        derived = true;
+      }
+    }
+    if (derived && !(raw.cadence >= 60 && raw.cadence <= 260)) {
+      raw.cadence = null; derived = false;      // 換算結果不合理就丟掉
+    }
+  }
+
+  var o = sanitizeLog(raw);                     // 統一走淨化層，不另開後門
+  if (derived && o.cadence != null) o.cadenceDerived = true;
   S.logs[d] = o; save();
   history.replaceState(null, '', location.pathname);
-  toast('已從手錶同步 ' + md(d));
+  toast('已從手錶同步 ' + md(d) + (derived ? '（步頻為換算值）' : ''));
   return true;
 }
 
