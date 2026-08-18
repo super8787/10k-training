@@ -476,8 +476,13 @@ function renderData() {
       (cv[cv.length - 1] >= 150 ? '✓' : '偏低') + '</span></div></div>';
     var cDeriv = cads.map(function (d) { return S.logs[d.date].cadenceDerived === true; });
     var nDeriv = cDeriv.filter(Boolean).length;
+    // y 範圍要跟著資料走。寫死 135-175 會把最該被看見的值畫到框外——
+    // 低於 150 的實測值正是 R5 要警告的情境，換算誤差大的值也一樣。
+    // 保底仍涵蓋 135-175，綠區不會因為資料集中而消失。
     h += sparkline(cv, {
-      min: 135, max: 175, bandLo: 160, bandHi: 175, derived: cDeriv,
+      min: Math.min(135, Math.min.apply(null, cv) - 5),
+      max: Math.max(175, Math.max.apply(null, cv) + 5),
+      bandLo: 160, bandHi: 175, derived: cDeriv,
       dotColor: function (v) { return v >= 160 ? 'var(--green)' : v >= 150 ? 'var(--amber)' : 'var(--red)'; }
     });
     h += '<div class="muted center" style="margin-top:6px">起點 ' +
