@@ -14,7 +14,8 @@
     CADENCE_MIN: 150,
     MISS_STREAK: 2,      // 連續幾次沒完成就降階
     GOOD_STREAK: 3,      // 連續幾次達標就加量
-    LONG_CUT: 0.80,      // 降階時長跑乘數
+    LONG_CUT: 0.80,      // R2 降階時長跑乘數
+    LONG_CUT_SOFT: 0.90, // R1 心率過高時長跑乘數
     LONG_BOOST: 1.10,    // 加量時長跑乘數
     PACE_SLOWDOWN: 30,   // 建議放慢秒數/km
     RHR_JUMP: 7          // 靜止心率比 7 日均值高幾下就建議休息
@@ -69,7 +70,7 @@
       var last = hotOnes[hotOnes.length - 1];
       var lastHr = logs[last.date].hrAvg;
       adj.paceSlowdownSec = R.PACE_SLOWDOWN;
-      adj.longRunFactor = Math.min(adj.longRunFactor, 0.9);
+      adj.longRunFactor = Math.min(adj.longRunFactor, R.LONG_CUT_SOFT);
       adj.reasons.push('R1');
       advices.push({
         id: 'R1', level: hotOnes.length >= 2 ? 'crit' : 'hot', icon: '🔥',
