@@ -186,8 +186,9 @@
         adj.reasons.push('R5');
         advices.push({
           id: 'R5', level: 'hot', icon: '🥁',
-          title: '步頻還是偏低（' + cadAvg.toFixed(0) + ' 步/分）',
-          detail: '最近 ' + R.GOOD_STREAK + ' 次平均 ' + cadAvg.toFixed(0) +
+          // 用 toFixed(0) 會把 149.67 顯示成 150，跟「< 150」的規則自相矛盾。
+          title: '步頻還是偏低（' + cadAvg.toFixed(1) + ' 步/分）',
+          detail: '最近 ' + R.GOOD_STREAK + ' 次平均 ' + cadAvg.toFixed(1) +
             '，低於 ' + R.CADENCE_MIN + '。步頻低代表你在跨大步、騰空久、落地衝擊大' +
             '（你的觸地時間 289ms 就是這樣來的）。下一堂品質課請務必開節拍器，' +
             '小步快踩，腳落在身體正下方。這是降低受傷率最有效的單一動作。',
