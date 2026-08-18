@@ -298,17 +298,33 @@
     if (adj.longRunFactor !== 1 && (s.kind === 'long')) {
       var f = adj.longRunFactor;
       var walk = s.totalMin - s.runMin;   // 走路（暖身/緩和）時間不隨降階變動
-      if (s.km) {
-        var k0 = s.km; s.km = Math.round(s.km * f * 10) / 10;
-        s.runMin = Math.round(s.runMin * f);        // 預估用時要跟著距離走
-        s.totalMin = s.runMin + walk;
-        s.title = retitle(s.title, k0, s.km);
+      var m0 = s.runMin, k0 = s.km;
+      s.runMin = Math.round(s.runMin * f);
+      s.totalMin = s.runMin + walk;
+      if (s.km) { s.km = Math.round(s.km * f * 10) / 10; }
+      /* 三個欄位都要改寫。只改 title 的話，同一張卡會出現
+         標題「連續 23 分」＋指示句「連續跑 25 分不停」＋重點句「約 54 分鐘」互相打架。 */
+      ['title', 'detail', 'focus'].forEach(function (fld) {
+        if (k0) s[fld] = retitle(s[fld], k0, s.km);
+        s[fld] = retitle(s[fld], m0, s.runMin);
+      });
+      /* retitle 只在數字唯一出現時才換（換錯位置比不換更糟）。
+         碰到「走 8 分暖身 → 連續跑 8 K」這種同一個數字出現兩次的句子它會放棄，
+         留下半舊半新的指示。與其讓使用者看到矛盾的兩個數字，不如整句重講。 */
+      var stale = k0
+        ? new RegExp('(?:^|[^0-9.])' + String(k0).replace('.', '\\.') + '\\s*(?:K|公里)')
+        : new RegExp('連續跑\\s*' + m0 + '\\s*分');
+      if (stale.test(s.detail)) {
+        s.detail = '走 ' + Math.round(walk / 2) + ' 分暖身 → ' +
+          (s.km ? '連續跑 ' + s.km + ' K' : '連續跑 ' + s.runMin + ' 分不停') +
+          ' → 走 ' + (walk - Math.round(walk / 2)) + ' 分緩和';
+        notes.push('指示已依調整後的目標重寫');
+      }
+      if (k0) {
         notes.push('長跑目標 ' + k0 + ' K → ' + s.km + ' K（' +
-          (f < 1 ? '降階' : '加量') + ' ' + Math.round(Math.abs(f - 1) * 100) + '%）');
+          (f < 1 ? '降階' : '加量') + ' ' + Math.round(Math.abs(f - 1) * 100) + '%，' +
+          '預估用時 ' + m0 + ' → ' + s.runMin + ' 分）');
       } else {
-        var m0 = s.runMin; s.runMin = Math.round(s.runMin * f);
-        s.totalMin = s.runMin + walk;
-        s.title = retitle(s.title, m0, s.runMin);
         notes.push('長跑目標 ' + m0 + ' 分 → ' + s.runMin + ' 分（' +
           (f < 1 ? '降階' : '加量') + ' ' + Math.round(Math.abs(f - 1) * 100) + '%）');
       }

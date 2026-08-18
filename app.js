@@ -328,7 +328,8 @@ function baselineCard() {
   h += '<div class="kv"><div class="kv-k">距離 / 時間</div><div class="kv-v">' + b.km + ' <small>km</small> · 14:42</div></div>';
   h += '<div class="kv"><div class="kv-k">平均配速</div><div class="kv-v">7\'16" <small>/km</small></div></div>';
   h += '<div class="kv"><div class="kv-k">平均心率</div><div class="kv-v">' + b.hrAvg +
-    ' <small>bpm</small> <span class="delta down">89% 最大值</span></div></div>';
+    ' <small>bpm</small> <span class="delta down">' +
+    Math.round(b.hrAvg / PLAN.meta.hrMax * 100) + '% 最大值</span></div></div>';
   h += '<div class="kv"><div class="kv-k">步頻</div><div class="kv-v">' + b.cadence +
     ' <small>spm</small> <span class="delta down">偏低</span></div></div>';
   h += '<div class="kv"><div class="kv-k">觸地時間</div><div class="kv-v">' + b.groundContactMs +
