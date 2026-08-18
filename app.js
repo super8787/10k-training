@@ -402,8 +402,11 @@ function sparkline(vals, opt) {
   }
   var dots = pts.map(function (p, i) {
     var col = opt.dotColor ? opt.dotColor(vals[i]) : 'var(--accent)';
+    // 換算值畫空心圈，跟實測值一眼分得開
+    var hollow = opt.derived && opt.derived[i];
     return '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) +
-      '" r="3" fill="' + col + '"/>';
+      '" r="' + (hollow ? '3.4' : '3') + '" fill="' + (hollow ? 'var(--bg)' : col) +
+      '" stroke="' + col + '" stroke-width="' + (hollow ? '1.8' : '0') + '"/>';
   }).join('');
   return '<svg class="spark" viewBox="0 0 ' + w + ' ' + hgt + '" preserveAspectRatio="none">' +
     band + '<path d="' + d + '" fill="none" stroke="var(--accent)" stroke-width="2" ' +
@@ -471,12 +474,20 @@ function renderData() {
       '<div class="kv-v">' + cv[cv.length - 1] + ' <small>spm</small>' +
       '<span class="delta ' + (cv[cv.length - 1] >= 150 ? 'up' : 'down') + '">' +
       (cv[cv.length - 1] >= 150 ? '✓' : '偏低') + '</span></div></div>';
+    var cDeriv = cads.map(function (d) { return S.logs[d.date].cadenceDerived === true; });
+    var nDeriv = cDeriv.filter(Boolean).length;
     h += sparkline(cv, {
-      min: 135, max: 175, bandLo: 160, bandHi: 175,
+      min: 135, max: 175, bandLo: 160, bandHi: 175, derived: cDeriv,
       dotColor: function (v) { return v >= 160 ? 'var(--green)' : v >= 150 ? 'var(--amber)' : 'var(--red)'; }
     });
     h += '<div class="muted center" style="margin-top:6px">起點 ' +
-      PLAN.meta.baseline.cadence + ' spm。綠區 = 160 以上。</div></div>';
+      PLAN.meta.baseline.cadence + ' spm。綠區 = 160 以上。</div>';
+    if (nDeriv) {
+      h += '<div class="muted center" style="margin-top:4px">空心圈 = 換算值（' + nDeriv +
+        ' / ' + cv.length + ' 筆）。HealthKit 沒有跑步步頻，這些是用步數或步幅算的，' +
+        '有誤差，<b>不會拿來改課表</b>。</div>';
+    }
+    h += '</div>';
   }
 
   /* 配速 */
@@ -528,7 +539,7 @@ function renderCoach() {
    ['R2', '連續 2 堂沒完成', '長跑降到 80%'],
    ['R3', '連續 3 次輕鬆跑心率 ≤ 144', '長跑加 10%'],
    ['R4', '靜止心率比近期均值高 ≥ 7　<b style="color:var(--amber)">（需接手錶捷徑才會啟用）</b>', '建議今天休息'],
-   ['R5', '最近 3 次平均步頻 < 150', '下堂品質課強制節拍器'],
+   ['R5', '最近 3 次<b>實測</b>步頻平均 < 150　<b style="color:var(--tx3)">（換算值不採計）</b>', '下堂品質課強制節拍器'],
    ['R6', '檢查點 CP1／CP2 到期或已回報', '依結果切換課表'],
    ['R7', '本週已過課程完成率 < 50%', '提醒，但不要補課']
   ].forEach(function (r) {
@@ -687,6 +698,8 @@ function onTap(e) {
       if (draft[k] != null && draft[k] !== '') o[k] = draft[k];
     });
     if (prev.restingHr != null) o.restingHr = prev.restingHr;
+    // 步頻沒被動過就保留「換算值」註記；手動調整過就是實測值，註記要消失
+    if (prev.cadenceDerived === true && o.cadence === prev.cadence) o.cadenceDerived = true;
     S.logs[dt] = o; save(); closeSheet(); render(); toast('已儲存');
   }
   else if (a === 'export') doExport();
@@ -749,14 +762,22 @@ function doImport() {
 }
 
 /* ── 捷徑帶參數進來（層 2）──
-   步頻的處理：HealthKit **沒有** cadence 這個型別（2026-08-19 查證 Apple 開發者論壇
-   thread/708208，官方回覆確認 iOS 16 只加了 runningPower/Speed/StrideLength/
-   VerticalOscillation/GroundContactTime，沒有 cadence），官方建議自己算。
+   步頻的處理：HealthKit **沒有跑步步頻**（runningCadence）這個型別。
+   有的是 cyclingCadence（自行車，iOS 17+），跑步只有 runningPower／runningSpeed／
+   runningStrideLength／runningVerticalOscillation／runningGroundContactTime（iOS 16+）。
+   查證範圍：Apple HKQuantityTypeIdentifier 文件頁 ＋ 開發者論壇 thread/708208
+   （2026-08-19 查；該串三則回覆皆為社群使用者 boerni／trispo／Lorenz5，
+   **不是 Apple 官方回覆**，換算公式 speed = stride × cadence 出自 Lorenz5）。
+
    所以這裡接受三種來源，依可靠度排序：
-     1. cad    捷徑直接給步頻（若未來 Apple 開放）
-     2. steps  步數 → 步頻 = 步數 ÷ 跑步分鐘
-     3. stride 步幅長度(公尺) → 步頻 = (公尺/分鐘) ÷ 步幅
-   算出來的步頻會標記 cadenceDerived，UI 上註明是換算值不是實測值。 */
+     1. cad    捷徑直接給步頻
+     2. steps  步數 ÷ 這次的跑步分鐘
+     3. stride 步幅長度(公尺) → (公尺÷分鐘) ÷ 步幅
+   換算值標記 cadenceDerived，UI 顯示「換算值」，且 **R5 不採用換算值改課表**。
+
+   兩條鐵則（都是驗收抓出來的）：
+   - 換算只用「這一次 URL 自己帶的」min／km，不拿舊紀錄的時間去除新的步數
+   - 這次算得出來的步頻要**蓋過**舊值；只有這次完全拿不到才沿用舊值（連旗標一起沿用） */
 function ingestURL() {
   var q = new URLSearchParams(location.search);
   if (q.get('log') !== '1') return false;
@@ -772,46 +793,53 @@ function ingestURL() {
     return (isFinite(v) && v >= min && v <= max) ? v : null;
   };
   var prev = S.logs[d] || {};
+
+  // 1. 這次 URL 帶來的值
+  var uKm  = num('km',  0,  100),
+      uMin = num('min', 0,  600),
+      uHr  = num('hr',  40, 240),
+      uCad = num('cad', 60, 260),
+      uRhr = num('rhr', 30, 140);
+
+  // 2. 步頻換算 —— 只用這次的 min／km，不混用舊資料
+  var cadence = uCad, derived = false;
+  if (cadence == null && uMin != null && uMin > 0) {
+    var steps = num('steps', 0, 100000);
+    if (steps != null) {
+      cadence = Math.round(steps / uMin); derived = true;
+    } else {
+      var stride = num('stride', 0.3, 2.5);
+      if (stride != null && uKm != null && uKm > 0) {
+        cadence = Math.round((uKm * 1000 / uMin) / stride); derived = true;
+      }
+    }
+    if (derived && !(cadence >= 60 && cadence <= 260)) { cadence = null; derived = false; }
+  }
+
   var raw = {
     done: true, source: 'shortcut',
     completedAt: prev.completedAt || new Date().toISOString(),
-    km:          num('km',  0,  100),
-    durationMin: num('min', 0,  600),
-    hrAvg:       num('hr',  40, 240),
-    cadence:     num('cad', 60, 260),
-    restingHr:   num('rhr', 30, 140),
-    rpe:         prev.rpe != null ? prev.rpe : null,
+    km: uKm, durationMin: uMin, hrAvg: uHr, restingHr: uRhr, cadence: cadence,
+    rpe: prev.rpe != null ? prev.rpe : null,
     checkpointResult: prev.checkpointResult || null
   };
-  // 缺值時沿用既有紀錄，不要把已經填好的資料清掉
-  ['km', 'durationMin', 'hrAvg', 'cadence', 'restingHr'].forEach(function (k) {
+  // 3. 這次沒帶到的欄位才沿用舊值，不要把已填好的資料清掉
+  ['km', 'durationMin', 'hrAvg', 'restingHr'].forEach(function (k) {
     if (raw[k] == null && prev[k] != null) raw[k] = prev[k];
   });
-
-  // 步頻換算（只在沒有直接值時才算）
-  var derived = false;
-  if (raw.cadence == null && raw.durationMin > 0) {
-    var steps = num('steps', 0, 100000);
-    if (steps != null) {
-      raw.cadence = Math.round(steps / raw.durationMin);
-      derived = true;
-    } else {
-      var stride = num('stride', 0.3, 2.5);
-      if (stride != null && raw.km > 0) {
-        raw.cadence = Math.round((raw.km * 1000 / raw.durationMin) / stride);
-        derived = true;
-      }
-    }
-    if (derived && !(raw.cadence >= 60 && raw.cadence <= 260)) {
-      raw.cadence = null; derived = false;      // 換算結果不合理就丟掉
-    }
+  var reusedCad = false;
+  if (raw.cadence == null && prev.cadence != null) {
+    raw.cadence = prev.cadence; reusedCad = true;
+    if (prev.cadenceDerived === true) raw.cadenceDerived = true;
+  } else if (derived) {
+    raw.cadenceDerived = true;
   }
 
-  var o = sanitizeLog(raw);                     // 統一走淨化層，不另開後門
-  if (derived && o.cadence != null) o.cadenceDerived = true;
+  var o = sanitizeLog(raw);
   S.logs[d] = o; save();
   history.replaceState(null, '', location.pathname);
-  toast('已從手錶同步 ' + md(d) + (derived ? '（步頻為換算值）' : ''));
+  toast('已從手錶同步 ' + md(d) +
+    (derived ? '（步頻為換算值）' : reusedCad ? '（步頻沿用原紀錄）' : ''));
   return true;
 }
 

@@ -146,9 +146,12 @@
       }
     }
 
-    /* ── R5：步頻偏低 ── */
+    /* ── R5：步頻偏低 ──
+       只採用「實測」步頻。換算值（cadenceDerived）不參與，因為 HealthKit 沒有跑步步頻型別，
+       換算值受步幅估計誤差影響，不足以拿來改課表。實測值＝廖在手錶上看到數字後手動填的。 */
     var cadLogs = doneAll.filter(function (d) {
-      return logs[d.date] && typeof logs[d.date].cadence === 'number';
+      var l = logs[d.date];
+      return l && typeof l.cadence === 'number' && l.cadenceDerived !== true;
     }).slice(-R.GOOD_STREAK);
     if (cadLogs.length === R.GOOD_STREAK) {
       var cadAvg = cadLogs.reduce(function (a, d) {
