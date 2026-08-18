@@ -1,7 +1,7 @@
 /* 10K 教練 — Service Worker
    策略：app shell 走 cache-first（離線可開），plan.json 走 network-first（課表可更新）
    訓練紀錄不經過這裡，一律存在 localStorage。 */
-const VERSION = 'v37';
+const VERSION = 'v39';
 const SHELL = 'shell-' + VERSION;
 const ASSETS = [
   './', './index.html', './style.css', './app.js', './coach.js',
@@ -9,10 +9,6 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', e => {
-  /* 用 addAll()。曾經改成逐一 fetch(u, {cache:'reload'}) 想繞過 HTTP 快取，
-     結果 SW 內部完全建不出快取（離線功能整個失效），而同一段邏輯在頁面上手動跑卻正常。
-     原因未查明。權衡：預快取偶爾抓到舊副本，影響只有 HTML 裡的版本查詢字串；
-     而改法會讓離線完全不能用。所以維持 addAll，換版仍靠 VERSION bump 重建快取。 */
   e.waitUntil(caches.open(SHELL).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
 });
 
