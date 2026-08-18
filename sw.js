@@ -1,7 +1,7 @@
 /* 10K 教練 — Service Worker
    策略：app shell 走 cache-first（離線可開），plan.json 走 network-first（課表可更新）
    訓練紀錄不經過這裡，一律存在 localStorage。 */
-const VERSION = 'v35';
+const VERSION = 'v37';
 const SHELL = 'shell-' + VERSION;
 const ASSETS = [
   './', './index.html', './style.css', './app.js', './coach.js',
@@ -9,20 +9,11 @@ const ASSETS = [
 ];
 
 self.addEventListener('install', e => {
-  /* 預快取必須用 cache:'reload' 繞過瀏覽器的 HTTP 快取。
-     實測：VERSION 已經是 v33、伺服器上的 index.html 也是 v33，
-     但 addAll() 抓到 HTTP 快取裡的舊副本，快取進去的是 v31 的 HTML。
-     版本戳因此失效——使用者換版後仍拿到舊畫面。 */
-  e.waitUntil(
-    caches.open(SHELL)
-      .then(c => Promise.all(ASSETS.map(u =>
-        fetch(u, { cache: 'reload' }).then(r => {
-          if (!r.ok) throw new Error('預快取失敗 ' + u + '：HTTP ' + r.status);
-          return c.put(u, r);
-        })
-      )))
-      .then(() => self.skipWaiting())
-  );
+  /* 用 addAll()。曾經改成逐一 fetch(u, {cache:'reload'}) 想繞過 HTTP 快取，
+     結果 SW 內部完全建不出快取（離線功能整個失效），而同一段邏輯在頁面上手動跑卻正常。
+     原因未查明。權衡：預快取偶爾抓到舊副本，影響只有 HTML 裡的版本查詢字串；
+     而改法會讓離線完全不能用。所以維持 addAll，換版仍靠 VERSION bump 重建快取。 */
+  e.waitUntil(caches.open(SHELL).then(c => c.addAll(ASSETS)).then(() => self.skipWaiting()));
 });
 
 self.addEventListener('activate', e => {
