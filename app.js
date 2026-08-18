@@ -494,13 +494,18 @@ function renderData() {
   var h = '';
   /* 最重要的一個數字 */
   h += '<div class="sec-h"><h2>最重要的一個數字</h2></div>';
+  // 0/0（只記了品質課、還沒有輕鬆跑或長跑）不是「0%」，是「還沒有資料」。
+  // 顯示紅色 0% ＋「你還在用拚的方式跑步」會冤枉人。
+  var noData = easyLong.length === 0;
   h += '<div class="card big"><div class="big-n" style="color:' +
-    (pctZ2 >= 70 ? 'var(--green)' : pctZ2 >= 40 ? 'var(--amber)' : 'var(--red)') + '">' +
-    pctZ2 + '<span class="big-u">%</span></div>' +
+    (noData ? 'var(--tx3)' : pctZ2 >= 70 ? 'var(--green)' : pctZ2 >= 40 ? 'var(--amber)' : 'var(--red)') + '">' +
+    (noData ? '—' : pctZ2 + '<span class="big-u">%</span>') + '</div>' +
     '<div class="big-l">輕鬆跑／長跑中，平均心率落在 Z2（' + Z.Z2.lo + '-' + Z.Z2.hi + '）的比例<br>' +
     '<span class="muted">' + nInZ2 + ' / ' + easyLong.length + ' 堂 · 目標 70% 以上</span></div></div>';
-  h += '<div class="focus' + (pctZ2 >= 70 ? '' : ' warn') + '">' +
-    (pctZ2 >= 70
+  h += '<div class="focus' + (noData || pctZ2 >= 70 ? '' : ' warn') + '">' +
+    (noData
+      ? '還沒有輕鬆跑或長跑的心率紀錄。跑完一堂並填上平均心率，這個數字才有意義。'
+      : pctZ2 >= 70
       ? '很好。有氧基礎正在長出來，這就是能跑完 10K 的東西。'
       : '這個數字比配速重要得多。它低，代表你還在用「拚」的方式跑步——' +
         '那種跑法練不出 10K 的耐力，只會累積疲勞。慢下來。') + '</div>';
