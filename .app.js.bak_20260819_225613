@@ -601,9 +601,9 @@ function renderData() {
     h += '<div class="muted center" style="margin-top:6px">起點 ' +
       PLAN.meta.baseline.cadence + ' spm。綠區 = ' + CAD.good + ' 以上，目標 ' + CAD.target + '。</div>';
     if (nDeriv) {
-      h += '<div class="muted center" style="margin-top:4px">空心圈 = 舊版換算值（' + nDeriv +
-        ' / ' + cv.length + ' 筆），實測誤差可達 26 spm，<b>不會拿來改課表</b>。' +
-        '新紀錄一律照手錶螢幕上的「平均步頻」手動填。</div>';
+      h += '<div class="muted center" style="margin-top:4px">空心圈 = 換算值（' + nDeriv +
+        ' / ' + cv.length + ' 筆）。HealthKit 沒有跑步步頻，這些是用步數或步幅算的，' +
+        '有誤差，<b>不會拿來改課表</b>。</div>';
     }
     h += '</div>';
   }
@@ -748,8 +748,7 @@ function drawSheet(sess) {
   h += stepField('距離', 'km', draft.km, 'km', 0.1);
   h += stepField('時間', 'durationMin', draft.durationMin, '分', 1);
   h += stepField('平均心率', 'hrAvg', draft.hrAvg, 'bpm', 1, '手錶上那個數字');
-  h += stepField('步頻', 'cadence', draft.cadence, 'spm', 1,
-    '看手錶的「平均步頻」照填｜目標 ' + (sess.cadence || CAD.target));
+  h += stepField('步頻', 'cadence', draft.cadence, 'spm', 1, '目標 ' + (sess.cadence || CAD.target));
 
   h += '<div class="field"><div class="field-l">跑起來的感覺<em>可略過</em></div><div class="chips">';
   ['很輕鬆', '輕鬆', '有點喘', '很喘', '快掛了'].forEach(function (t, i) {
@@ -916,17 +915,15 @@ function doImport() {
    （2026-08-19 查；該串三則回覆皆為社群使用者 boerni／trispo／Lorenz5，
    **不是 Apple 官方回覆**，換算公式 speed = stride × cadence 出自 Lorenz5）。
 
-   🔴 2026-08-19 更正：本來這裡還接受兩種換算來源（步數÷分鐘、速度÷步幅），
-   拿 2026-08-18 那趟實測後**兩條都廢除**——
-       步幅法 128 ／ 步數法 266 ／ 手錶實際顯示 **154**。
-   步幅法失準是因為那趟只有 24 筆步幅樣本配 659 筆速度樣本，
-   拿稀疏平均去除密集平均不成立。（8/14 步幅有 143 筆，算出 144、手錶 143，
-   當時誤以為驗證通過——那是樣本剛好夠密的巧合。）
-   同一份匯出檔的功率算出 137.56 W、手錶顯示 137 W，證明取樣窗與平均法本身沒問題，
-   壞的只有「用步幅反推步頻」這件事。
+   所以這裡接受三種來源，依可靠度排序：
+     1. cad    捷徑直接給步頻
+     2. steps  步數 ÷ 這次的跑步分鐘
+     3. stride 步幅長度(公尺) → (公尺÷分鐘) ÷ 步幅
+   換算值標記 cadenceDerived，UI 顯示「換算值」，且 **R5 不採用換算值改課表**。
 
-   → 現在只接受 cad（捷徑直接給步頻）。拿不到就留空，由使用者照手錶螢幕手動填。
-     舊紀錄殘留的 cadenceDerived 標記保留，UI 標示為換算值，R5 一樣不採用。 */
+   兩條鐵則（都是驗收抓出來的）：
+   - 換算只用「這一次 URL 自己帶的」min／km，不拿舊紀錄的時間去除新的步數
+   - 這次算得出來的步頻要**蓋過**舊值；只有這次完全拿不到才沿用舊值（連旗標一起沿用） */
 function ingestURL() {
   var q = new URLSearchParams(location.search);
   if (q.get('log') !== '1') return false;
@@ -955,14 +952,20 @@ function ingestURL() {
       uCad = numField('cad', 'cadence'),
       uRhr = numField('rhr', 'restingHr');
 
-  // 2. 步頻：只收手錶直接給的值，**不再換算**
-  //    2026-08-19 拿 8/18 那趟實測驗過兩條換算路徑，兩條都是壞的：
-  //      步幅法（速度÷步幅）→ 128    步數法（步數÷分鐘）→ 266    手錶實際顯示 154
-  //    步幅法失準的原因：那趟只有 24 筆步幅樣本卻有 659 筆速度樣本，
-  //    拿稀疏平均去除密集平均本來就不成立（8/14 步幅有 143 筆，算出 144 很接近手錶的 143，
-  //    當時我以為驗證通過——那是巧合，不是方法對）。
-  //    → 差 26 下的數字會讓 R5 誤判、讓趨勢圖說謊，寧可沒有也不要錯的。
+  // 2. 步頻換算 —— 只用這次的 min／km，不混用舊資料
   var cadence = uCad, derived = false;
+  if (cadence == null && uMin != null && uMin > 0) {
+    var steps = num('steps', 0, 100000);
+    if (steps != null) {
+      cadence = Math.round(steps / uMin); derived = true;
+    } else {
+      var stride = num('stride', 0.3, 2.5);
+      if (stride != null && uKm != null && uKm > 0) {
+        cadence = Math.round((uKm * 1000 / uMin) / stride); derived = true;
+      }
+    }
+    if (derived && !(cadence >= CAD.min && cadence <= CAD.max)) { cadence = null; derived = false; }
+  }
 
   var raw = {
     done: true, source: 'shortcut',
