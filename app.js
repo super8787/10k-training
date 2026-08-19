@@ -1000,7 +1000,11 @@ function onTap(e) {
        正確判準：值跟上一版一樣＝沒動過＝沿用原基準；動過（或本來就沒有舊值、
        預填來自 sess.runMin）＝使用者確認過的純跑步時間。 */
     if (o.durationMin != null) {
-      o.durationBasis = (prev.durationBasis && o.durationMin === prev.durationMin)
+      // 守衛看的是「值有沒有動過」，不是「prev 有沒有 basis」。
+      // 用 `prev.durationBasis &&` 會短路：舊紀錄沒有 basis 時，即使一個字都沒改，
+      // 也會被蓋成 'run'——那就是在猜，而這一整套的前提是「猜了就是編」。
+      // 沒動過就沿用 prev 的（可能是 undefined ＝ 維持「基準未知」，sanitizeLog 會自然丟掉）。
+      o.durationBasis = (prev.durationMin != null && o.durationMin === prev.durationMin)
         ? prev.durationBasis
         : 'run';
     }
