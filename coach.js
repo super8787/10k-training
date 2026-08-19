@@ -16,6 +16,9 @@
     HR_STEADY_CEIL: 160, // fallback：Z3 上限
     CADENCE_MIN: 150,    // R5 判定門檻；app.js 的 CAD.warn 直接引用這個值
     CADENCE_TARGET: 165, // 目標步頻；課表沒指定時的 fallback
+    // R8 要比「同樣配速下的心率」，配速差太多就沒有可比性。
+    // 這個數字 app.js 的規則說明也會印，所以只能有一份。
+    PACE_TOL_SEC: 45,
     MISS_STREAK: 2,      // 連續幾次沒完成就降階
     GOOD_STREAK: 3,      // 連續幾次達標就加量
     LONG_CUT: 0.80,      // R2 降階時長跑乘數
@@ -286,7 +289,7 @@
       var fmt = function (sec) {
         return Math.floor(sec / 60) + "'" + String(Math.round(sec % 60)).padStart(2, '0') + '"';
       };
-      if (Math.abs(p1 - p0) <= 45) {          // 配速差在 45 秒/km 內才有可比性
+      if (Math.abs(p1 - p0) <= R.PACE_TOL_SEC) {   // 配速差夠近才有可比性
         if (h1 <= h0 - 3) {
           advices.push({
             id: 'R8', level: 'good', icon: '💚',
@@ -294,7 +297,7 @@
             detail: '前期 ' + fmt(p0) + '/km 時平均心率 ' + h0.toFixed(0) +
               '，最近 ' + fmt(p1) + '/km 時是 ' + h1.toFixed(0) + '。' +
               '這就是這份計畫真正要看的東西——不是你跑多快，是同樣的速度變得多輕鬆。',
-            rule: 'R8｜配速相近（差 ≤45 秒/km）且平均心率下降 ≥3 下'
+            rule: 'R8｜配速相近（差 ≤' + R.PACE_TOL_SEC + ' 秒/km）且平均心率下降 ≥3 下'
           });
         } else if (h1 >= h0 + 5) {
           advices.push({
