@@ -49,7 +49,9 @@ function hrVerdict(sess, hr) {
 }
 /* 🔴 基準線數字只能從 plan.meta.baseline 取，不要在文案裡手抄。
    驗收四輪抓到四份手抄本：md 的「從 2K」、index.html、manifest.json，
-   以及這支檔案裡的「9 分 17 秒」（與 plan.json 的 9'19" 差 2 秒）與「2 公里」。 */
+   以及這支檔案裡的「9 分 17 秒」與「2 公里」。
+   ⚠️ 那個「差 2 秒」的根源不是抄錯，是 BASE.km 被四捨五入成 3.01（實際 3.0196）——
+      改成 3.02 之後配速就是 9'17"，跟手錶螢幕一致。修抄本沒用，要修源頭。 */
 /* 缺值一律回 null，讓呼叫端整句不顯示——不要吐 "NaN 分 NaN 秒" 這種字串。
    驗收指出：安靜出貨的壞字串比拋例外更難發現，因為沒有人會收到訊號。
    （coach.js 的 gctNote() 也是同一個慣例：取不到就把那句話整個省略。） */
@@ -394,10 +396,11 @@ function logCard(date, lg, sess) {
   var rows = [];
   if (lg.km) rows.push(['距離', esc(lg.km) + ' <small>km</small>']);
   if (lg.durationMin) {
-    rows.push(lg.durationBasis === 'run'
-      ? ['跑步時間', esc(lg.durationMin) + ' <small>分（不含暖身緩和）</small>']
-      : ['時間', esc(lg.durationMin) +
-         ' <small>分 · 基準未知（舊版可能含暖身緩和，配速僅供參考）</small>']);
+    var DB = {
+      run:   ['跑步時間', '分（不含暖身緩和）'],
+      total: ['總時間', '分 · 含暖身緩和，所以配速會偏慢'],
+    }[lg.durationBasis] || ['時間', '分 · 基準未知（舊版可能含暖身緩和，配速僅供參考）'];
+    rows.push([DB[0], esc(lg.durationMin) + ' <small>' + DB[1] + '</small>']);
   }
   if (lg.km && lg.durationMin) rows.push(['平均配速', pace(lg.km, lg.durationMin) + ' <small>/km</small>']);
   if (lg.hrAvg) {
@@ -706,18 +709,41 @@ function renderData() {
     h += '</div>';
   }
 
-  /* 配速 */
-  var paces = done.filter(function (d) { var l = S.logs[d.date]; return l.km && l.durationMin; });
+  /* 配速 —— 🔴 只畫「純跑步時間」那一種基準的點。
+     durationBasis 有三種：'run'（手動填，不含暖身緩和）、'total'（捷徑／匯出檔給的整段時間）、
+     以及舊紀錄的「沒有這欄」。把 total 混進來會多算暖身緩和的十分鐘，
+     系統性偏慢 30–40%——而 R8 正是拿配速當索引去比同配速的心率，
+     一個假的配速會讓它拿錯的兩趟去比，然後給出錯的課表調整。
+     所以寧可少畫幾個點，也不要畫一條混了兩把尺的線。 */
+  var paces = done.filter(function (d) {
+    var l = S.logs[d.date];
+    return l.km && l.durationMin && l.durationBasis === 'run';
+  });
+  var paceSkipped = done.filter(function (d) {
+    var l = S.logs[d.date];
+    return l.km && l.durationMin && l.durationBasis !== 'run';
+  }).length;
   if (paces.length >= 2) {
     var pv = paces.map(function (d) { var l = S.logs[d.date]; return l.durationMin * 60 / l.km; });
-    h += '<div class="sec-h"><h2>配速趨勢</h2><span>Z2 心率下自然變快 = 進步</span></div><div class="card">';
+    h += '<div class="sec-h"><h2>配速趨勢</h2><span>同樣心率下變快 = 進步</span></div><div class="card">';
     var lastP = pv[pv.length - 1];
     h += '<div class="kv" style="border:none;padding-top:0"><div class="kv-k">最近一次</div>' +
       '<div class="kv-v">' + Math.floor(lastP / 60) + "'" +
       String(Math.round(lastP % 60)).padStart(2, '0') + '" <small>/km</small></div></div>';
     h += sparkline(pv.map(function (v) { return -v; }), { dotColor: function () { return 'var(--accent)'; } });
     h += '<div class="muted center" style="margin-top:6px">往上 = 變快。' +
-      '重點不是快，是「同樣心率下能跑多快」。</div></div>';
+      '重點不是快，是「同樣心率下能跑多快」。';
+    if (paceSkipped) {
+      h += '<br>（另有 ' + paceSkipped + ' 筆的時間含暖身緩和，基準不同沒有畫進來。' +
+        '想讓它進圖表，把那幾筆的時間改成純跑步時間。）';
+    }
+    h += '</div></div>';
+  } else if (paceSkipped) {
+    h += '<div class="sec-h"><h2>配速趨勢</h2></div><div class="card">' +
+      '<div class="muted center">已有 ' + paceSkipped +
+      ' 筆紀錄，但它們的時間是「整段運動時間」（含暖身緩和），' +
+      '跟純跑步時間不是同一把尺，混在一起畫會失真。' +
+      '手動把時間改成純跑步時間就會出現在這裡。</div></div>';
   }
 
   /* 累計 */
@@ -1082,6 +1108,10 @@ function ingestURL() {
 
   var raw = {
     done: true, source: 'shortcut',
+    // 🔴 捷徑（或匯出檔）給的 min 是**整段運動時間**，含暖身緩和——不是純跑步時間。
+    //    課表每一堂都是「走 5 分暖身 → 跑 X 分 → 走 5 分緩和」，所以這是常態不是例外。
+    //    標成 'total'，讓下游知道它跟手動填的 'run' 不是同一個基準。
+    durationBasis: 'total',
     completedAt: prev.completedAt || new Date().toISOString(),
     km: uKm, durationMin: uMin, hrAvg: uHr, restingHr: uRhr, cadence: cadence,
     rpe: prev.rpe != null ? prev.rpe : null,
