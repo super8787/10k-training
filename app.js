@@ -361,13 +361,22 @@ function logCard(date, lg, sess) {
   var h = '<div class="sec-h"><h2>這堂的紀錄</h2></div><div class="card">';
   var rows = [];
   if (lg.km) rows.push(['距離', esc(lg.km) + ' <small>km</small>']);
-  if (lg.durationMin) rows.push(['時間', esc(lg.durationMin) + ' <small>分</small>']);
+  if (lg.durationMin) rows.push(['跑步時間', esc(lg.durationMin) +
+    ' <small>分（不含暖身緩和）</small>']);
   if (lg.km && lg.durationMin) rows.push(['平均配速', pace(lg.km, lg.durationMin) + ' <small>/km</small>']);
   if (lg.hrAvg) {
     var z = zoneOf(lg.hrAvg), warn = '';
-    if ((sess.kind === 'easy' || sess.kind === 'long') && lg.hrAvg > hrT().steadyCeil)
+    // 同一個心率在不同課別的意義相反：輕鬆跑落在 Z2 是跑對了，
+    // 品質課（處方 Z3）落在 Z2 是**強度不足**，給綠勾會鼓勵他繼續練不到東西。
+    var wantZ3 = sess.kind === 'quality' || sess.kind === 'race';
+    if (!wantZ3 && lg.hrAvg > hrT().steadyCeil)
       warn = ' <span class="delta down">偏高</span>';
-    else if (inZ2(lg.hrAvg)) warn = ' <span class="delta up">✓ Z2</span>';
+    else if (wantZ3 && inZ2(lg.hrAvg))
+      warn = ' <span class="delta warn">強度不足</span>';
+    else if (!wantZ3 && inZ2(lg.hrAvg))
+      warn = ' <span class="delta up">✓ Z2</span>';
+    else if (wantZ3 && lg.hrAvg > hrT().easyCeil && lg.hrAvg <= hrT().steadyCeil)
+      warn = ' <span class="delta up">✓ Z3</span>';
     rows.push(['平均心率', esc(lg.hrAvg) + ' <small>bpm · ' + esc(z) + '</small>' + warn]);
   }
   if (lg.cadence) {
@@ -771,7 +780,10 @@ function openSheet(date) {
   var lg = S.logs[date] || {};
   draft = {
     km: lg.km != null ? lg.km : (sess.km || null),
-    durationMin: lg.durationMin != null ? lg.durationMin : sess.totalMin,
+    // 🔴 預填用 runMin（純跑步時間）不是 totalMin（含暖身緩和）。
+    //    「距離」是跑步距離，兩者相除才是配速；用 totalMin 會系統性偏慢——
+    //    實測：一鍵儲存後顯示「11'03"/km」，而同一張卡的目標寫「9'00" 上下」。
+    durationMin: lg.durationMin != null ? lg.durationMin : sess.runMin,
     hrAvg: lg.hrAvg != null ? lg.hrAvg : null,
     cadence: lg.cadence != null ? lg.cadence : null,
     rpe: lg.rpe || null,
@@ -802,7 +814,8 @@ function drawSheet(sess) {
   }
 
   h += stepField('距離', 'km', draft.km, 'km', 0.1);
-  h += stepField('時間', 'durationMin', draft.durationMin, '分', 1);
+  h += stepField('跑步時間', 'durationMin', draft.durationMin, '分', 1,
+    '不含暖身與緩和｜今天課表是 ' + sess.runMin + ' 分');
   h += stepField('平均心率', 'hrAvg', draft.hrAvg, 'bpm', 1, '手錶上那個數字');
   h += stepField('步頻', 'cadence', draft.cadence, 'spm', 1,
     '看手錶的「平均步頻」照填｜目標 ' + (sess.cadence || CAD.target));

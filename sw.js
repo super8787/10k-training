@@ -1,7 +1,7 @@
 /* 10K 教練 — Service Worker
    策略：app shell 走 cache-first（離線可開），plan.json 走 network-first（課表可更新）
    訓練紀錄不經過這裡，一律存在 localStorage。 */
-const VERSION = 'v64';
+const VERSION = 'v65';
 const SHELL = 'shell-' + VERSION;
 const ASSETS = [
   './', './index.html', './style.css', './app.js', './coach.js',
