@@ -120,6 +120,13 @@ function sanitizeLog(raw) {
   }
   if (raw.source === 'shortcut' || raw.source === 'manual') o.source = raw.source;
   if (raw.cadenceDerived === true) o.cadenceDerived = true;
+  /* durationMin 的基準改過一次：2026-08-20 之前預填的是 totalMin（含暖身緩和），
+     之後是 runMin（純跑步時間）。兩者混在一起會讓配速趨勢失真。
+     不做資料遷移——沒有任何欄位能事後判斷舊值是哪個基準，猜了就是編。
+     改成把基準記下來，沒有這欄的就是舊資料，顯示時說「基準未知」而不是硬掛新標籤。 */
+  if (raw.durationBasis === 'run' || raw.durationBasis === 'total') {
+    o.durationBasis = raw.durationBasis;
+  }
   // 只收 ISO 格式，不要讓任意字串（含 XSS payload）留在 store 裡等下游踩
   // 形狀對還不夠：2026-99-99T99:99:99Z 也符合正則。用 Date 往返比對確認真的是那個時刻。
   if (typeof raw.completedAt === 'string' &&
@@ -149,6 +156,8 @@ function load() {
     if (raw) {
       var o = JSON.parse(raw);
       if (o && o.logs) {
+        // version 目前恆為 1 且沒有讀取端。留著它會讓人以為有遷移機制——
+        // 真正的相容性靠每筆紀錄自己的 durationBasis 判斷，不靠全域版本號。
         return { version: 1, logs: sanitizeLogs(o.logs),
                  createdAt: typeof o.createdAt === 'string' ? o.createdAt : new Date().toISOString() };
       }
@@ -361,22 +370,38 @@ function logCard(date, lg, sess) {
   var h = '<div class="sec-h"><h2>這堂的紀錄</h2></div><div class="card">';
   var rows = [];
   if (lg.km) rows.push(['距離', esc(lg.km) + ' <small>km</small>']);
-  if (lg.durationMin) rows.push(['跑步時間', esc(lg.durationMin) +
-    ' <small>分（不含暖身緩和）</small>']);
+  if (lg.durationMin) {
+    rows.push(lg.durationBasis === 'run'
+      ? ['跑步時間', esc(lg.durationMin) + ' <small>分（不含暖身緩和）</small>']
+      : ['時間', esc(lg.durationMin) +
+         ' <small>分 · 基準未知（舊版可能含暖身緩和，配速僅供參考）</small>']);
+  }
   if (lg.km && lg.durationMin) rows.push(['平均配速', pace(lg.km, lg.durationMin) + ' <small>/km</small>']);
   if (lg.hrAvg) {
     var z = zoneOf(lg.hrAvg), warn = '';
-    // 同一個心率在不同課別的意義相反：輕鬆跑落在 Z2 是跑對了，
-    // 品質課（處方 Z3）落在 Z2 是**強度不足**，給綠勾會鼓勵他繼續練不到東西。
-    var wantZ3 = sess.kind === 'quality' || sess.kind === 'race';
-    if (!wantZ3 && lg.hrAvg > hrT().steadyCeil)
-      warn = ' <span class="delta down">偏高</span>';
-    else if (wantZ3 && inZ2(lg.hrAvg))
-      warn = ' <span class="delta warn">強度不足</span>';
-    else if (!wantZ3 && inZ2(lg.hrAvg))
-      warn = ' <span class="delta up">✓ Z2</span>';
-    else if (wantZ3 && lg.hrAvg > hrT().easyCeil && lg.hrAvg <= hrT().steadyCeil)
-      warn = ' <span class="delta up">✓ Z3</span>';
+    /* 🔴 不要用課別去猜處方——每一堂課表本身就帶 hrLo/hrHi，直接跟它比。
+       用課別猜的版本有三格會誤導（驗收逐格列出來的）：
+         ① 節奏跑的處方是 Z4（165-177），但它被歸在 quality，
+            落在 Z3 會拿到「✓ Z3」綠勾——同一張卡的內容寫著「心率 165-177」。
+         ② 品質課／比賽落在 Z4、Z5 一個標記都沒有。
+            **比賽日心率飆到 Z5 完全沒有提示，是整份 App 風險最高的一格。**
+         ③ 長跑落在 Z3 沒有標記，但 Z3 就是長跑的處方（coach.js 的 R3 判準也是這樣寫的）
+            ——跑進處方區得到「沒消息」，跑進更低的 Z2 反而得到綠勾。
+       改成跟該堂自己的區間比，三格自動消失，而且以後改課表不用回來改這裡。 */
+    var lo = sess.hrLo, hi = sess.hrHi, ceil = hrT().ceiling;
+    var band = lo + '-' + hi;
+    // hrMode 由課表提供：'ceiling' = 區間是上限（低於它是進步），'target' = 目標帶
+    var isCeil = sess.hrMode === 'ceiling';
+    if (lg.hrAvg > ceil)
+      warn = ' <span class="delta down">超過上限 ' + ceil + '</span>';
+    else if (hi && lg.hrAvg > hi)
+      warn = ' <span class="delta down">偏高（這堂 ' + band + '）</span>';
+    else if (lo && lg.hrAvg >= lo)
+      warn = ' <span class="delta up">✓ 落在這堂的區間</span>';
+    else if (isCeil)
+      warn = ' <span class="delta up">✓ 比目標更輕鬆（' + band + '）——有氧在長</span>';
+    else
+      warn = ' <span class="delta warn">強度不足（這堂要 ' + band + '）</span>';
     rows.push(['平均心率', esc(lg.hrAvg) + ' <small>bpm · ' + esc(z) + '</small>' + warn]);
   }
   if (lg.cadence) {
@@ -916,6 +941,8 @@ function onTap(e) {
     if (prev.restingHr != null) o.restingHr = prev.restingHr;
     // 步頻沒被動過就保留「換算值」註記；手動調整過就是實測值，註記要消失
     if (prev.cadenceDerived === true && o.cadence === prev.cadence) o.cadenceDerived = true;
+    // 面板預填的是 runMin，所以這一筆的 durationMin 基準是「純跑步時間」
+    if (o.durationMin != null) o.durationBasis = 'run';
     S.logs[dt] = o; save(); closeSheet(); render(); toast('已儲存');
   }
   else if (a === 'export') doExport();
@@ -1030,8 +1057,10 @@ function ingestURL() {
   //       （8/14 步幅有 143 筆，算出 144、手錶 143，我當時以為驗證通過——那是巧合。）
   //
   //    ② 步數法（步數÷分鐘）→ 我一開始算出 266，**但那是我的 bug 不是方法的錯**。
-  //       只取 Apple Watch 來源重算：8/18＝154.19（手錶 154）、8/14＝144.05（手錶 143），
-  //       三種算法裡最準。266 是把 iPhone 重複記錄的步數也加進去了（跨來源沒去重）。
+  //       266 是把 iPhone 重複記錄的步數也加進去了（跨來源沒去重）。
+  //       ⚠️ 而且根本不用自己加總——每筆 Workout 自帶
+  //       WorkoutStatistics[type=StepCount].sum，讀它就好（8/18＝154.4，手錶 154）。
+  //       實際數字一律跑 scripts/cadence_from_export.py，不要在這裡抄一份。
   //
   //    仍然兩條都不留，理由是**捷徑送來的 steps 無法保證已按來源去重**——
   //    一個「大多數時候對、偶爾差 100」的值比沒有更危險，它會讓 R5 誤判、讓趨勢圖說謊。
