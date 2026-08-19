@@ -244,7 +244,7 @@ function renderToday() {
     h += '<div class="hero"><div class="hero-top"><span class="tag">尚未開訓</span></div>' +
       '<h1>還有 ' + d0 + ' 天開訓</h1>' +
       '<div class="hero-detail">第一堂課是 ' + md(start) +
-      '（週一）之後的第一個週二 ' + md(PLAN.days[0].date) + '。<br>' +
+      '。之後隔一天跑一次。<br>' +
       '在那之前：把跑鞋準備好，手錶的體能訓練 App 熟悉一下，' +
       '然後記住這句話——<b>這 11 週你唯一要學會的事，是慢下來。</b></div></div>';
     h += '<div class="sec-h"><h2>第一堂課長這樣</h2></div>';
@@ -394,7 +394,7 @@ function renderWeek() {
   var days = PLAN.days.filter(function (d) { return d.week === wk; });
   var wl = PLAN.weeklyLoad.find(function (w) { return w.week === wk; });
   var h = '<div class="sec-h"><h2>第 ' + wk + ' 週 · ' + esc(days[0].theme) + '</h2>' +
-    '<span>' + md(days[0].date) + '–' + md(days[3].date) + '</span></div>';
+    '<span>' + md(days[0].date) + '–' + md(days[days.length - 1].date) + '</span></div>';
   h += '<div class="card flat" style="margin-bottom:13px"><div class="muted">' +
     esc(days[0].weekNote) + '</div></div>';
 
@@ -428,7 +428,7 @@ function renderWeek() {
 
   var doneN = days.filter(function (d) { return (S.logs[d.date] || {}).done; }).length;
   h += '<div class="sec-h"><h2>本週統計</h2></div><div class="card">';
-  h += '<div class="kv"><div class="kv-k">完成度</div><div class="kv-v">' + doneN + ' / 4</div></div>';
+  h += '<div class="kv"><div class="kv-k">完成度</div><div class="kv-v">' + doneN + ' / ' + days.length + '</div></div>';
   h += '<div class="kv"><div class="kv-k">計畫跑量</div><div class="kv-v">' + wl.load + ' <small>分</small></div></div>';
   if (wl.deload) h += '<div class="kv"><div class="kv-k">週型</div><div class="kv-v"><span class="tag deload">減量週</span></div></div>';
   h += '</div>';
@@ -450,7 +450,7 @@ function renderAll() {
       var days = PLAN.days.filter(function (d) { return d.week === w.week; });
       var done = days.filter(function (d) { return (S.logs[d.date] || {}).done; }).length;
       var pct = done / days.length * 100;
-      var cls = 'wk' + (w.week === wkNow ? ' now' : (days[3].date < t ? ' past' : ''));
+      var cls = 'wk' + (w.week === wkNow ? ' now' : (days[days.length - 1].date < t ? ' past' : ''));
       var cp = days.find(function (d) { return d.checkpoint; });
       h += '<div class="' + cls + '">';
       h += '<div class="wk-n">W' + w.week + '</div>';
@@ -458,7 +458,7 @@ function renderAll() {
         (cp ? ' 🚩' : '') + (w.deload ? ' <span class="tag deload" style="padding:1px 6px;font-size:9.5px">減量</span>' : '') + '</div>';
       h += '<div class="wk-bar"><div class="wk-fill' + (pct === 100 ? ' full' : '') +
         '" style="width:' + pct + '%"></div></div></div>';
-      h += '<div class="wk-c">' + done + '/4</div>';
+      h += '<div class="wk-c">' + done + '/' + days.length + '</div>';
       h += '</div>';
     });
     h += '</div>';
