@@ -1,7 +1,7 @@
 {
   "name": "10K 教練",
   "short_name": "10K 教練",
-  "description": "11 週從 2K 到 10K 的訓練計畫，讀手錶資料自動調整課表",
+  "description": "12 週從 3.01 公里到 10 公里的訓練計畫，讀手錶資料自動調整課表",
   "start_url": "./index.html",
   "scope": "./",
   "display": "standalone",
