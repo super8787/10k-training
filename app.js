@@ -45,7 +45,10 @@ function hrVerdict(sess, hr) {
   // 低於下界：ceiling 型只陳述事實，不要替他解釋成「有氧在長」——
   // 心率單獨分不出「有氧變好」和「跑更慢／改用走的」，那是 R8 的工作（它會比同配速）。
   if (sess.hrMode === 'ceiling') return { cls: 'up', text: '✓ 沒超標（這堂 ' + band + '）' };
-  return { cls: 'warn', text: '強度不足（這堂要 ' + band + '）' };
+  if (sess.hrMode === 'target')  return { cls: 'warn', text: '強度不足（這堂要 ' + band + '）' };
+  // 未知模式不要落到最嚴厲的那個分支——寧可不評價，也不要把進步標成失敗。
+  // （課表端有 validate() 擋 hrMode，這裡是第二層保險。）
+  return { cls: 'up', text: '沒超過上限 ' + ceil };
 }
 /* 🔴 基準線數字只能從 plan.meta.baseline 取，不要在文案裡手抄。
    驗收四輪抓到四份手抄本：md 的「從 2K」、index.html、manifest.json，
@@ -277,7 +280,11 @@ function sessionBlock(s, notes) {
       '<div class="gate-c stop"><div class="gate-n">' + esc(sess.hrGate.walkAbove) + '</div>' +
       '<div class="gate-l">心率上限，超過就走一段</div></div>' +
       '<div class="gate-c go"><div class="gate-n">' + esc(sess.hrLo) + '-' + esc(sess.hrHi) + '</div>' +
-      '<div class="gate-l">目標區（現在會偏高，正常）</div></div>' +
+      // 比賽日那個區間是「前 2K 壓在上界以下」的意思，不是整場平均的目標帶
+      // ——判定（hrVerdict 的 ceilingOnly）已經決定不拿它評分，標籤也要說實話。
+      '<div class="gate-l">' + (sess.hrMode === 'ceilingOnly'
+        ? '前 2K 壓在 ' + esc(sess.hrHi) + ' 以下' : '目標區（現在會偏高，正常）') +
+      '</div></div>' +
       '</div></div>';
   }
 
@@ -292,7 +299,9 @@ function sessionBlock(s, notes) {
     h += '<div class="metric"><div class="metric-n">' + s.runMin + '<span class="metric-u"> 分</span></div><div class="metric-l">跑步時間</div></div>';
     h += '<div class="metric"><div class="metric-n">' + s.totalMin + '<span class="metric-u"> 分</span></div><div class="metric-l">全部含走路</div></div>';
   }
-  h += '<div class="metric"><div class="metric-n rng">' + esc(sess.hrLo) + '-' + esc(sess.hrHi) + '</div><div class="metric-l">心率 ' + esc(sess.zone) + '</div></div>';
+  h += '<div class="metric"><div class="metric-n rng">' + esc(sess.hrLo) + '-' + esc(sess.hrHi) +
+    '</div><div class="metric-l">' +
+    (sess.hrMode === 'ceilingOnly' ? '前 2K 心率' : '心率 ' + esc(sess.zone)) + '</div></div>';
   h += '</div>';
 
   if (notes.length) {
@@ -876,8 +885,13 @@ function drawSheet(sess) {
   }
 
   h += stepField('距離', 'km', draft.km, 'km', 0.1);
+  // 舊值若是 'total'（捷徑／匯出檔帶進來的整段時間），要明說它現在不是純跑步時間，
+  // 否則他看到「不含暖身緩和」的提示配一個含暖身緩和的數字，會以為已經對了。
+  var dbNow = (S.logs[sess.date] || {}).durationBasis;
   h += stepField('跑步時間', 'durationMin', draft.durationMin, '分', 1,
-    '不含暖身與緩和｜今天課表是 ' + sess.runMin + ' 分');
+    dbNow === 'total'
+      ? '⚠️ 這個數字是整段運動時間（含暖身緩和），請改成純跑步時間｜課表是 ' + sess.runMin + ' 分'
+      : '不含暖身與緩和｜今天課表是 ' + sess.runMin + ' 分');
   h += stepField('平均心率', 'hrAvg', draft.hrAvg, 'bpm', 1, '手錶上那個數字');
   h += stepField('步頻', 'cadence', draft.cadence, 'spm', 1,
     '看手錶的「平均步頻」照填｜目標 ' + (sess.cadence || CAD.target));
@@ -980,8 +994,16 @@ function onTap(e) {
     if (prev.restingHr != null) o.restingHr = prev.restingHr;
     // 步頻沒被動過就保留「換算值」註記；手動調整過就是實測值，註記要消失
     if (prev.cadenceDerived === true && o.cadence === prev.cadence) o.cadenceDerived = true;
-    // 面板預填的是 runMin，所以這一筆的 durationMin 基準是「純跑步時間」
-    if (o.durationMin != null) o.durationBasis = 'run';
+    /* 🔴 基準要跟著「值有沒有被動過」走，不能無條件標 'run'。
+       洗白路徑（驗收複現過）：捷徑存入 38 分／'total'（含 10 分暖身緩和）
+       → 面板預填 38 → 使用者沒動就按儲存 → 被標成純跑步時間 → 進配速趨勢。
+       正確判準：值跟上一版一樣＝沒動過＝沿用原基準；動過（或本來就沒有舊值、
+       預填來自 sess.runMin）＝使用者確認過的純跑步時間。 */
+    if (o.durationMin != null) {
+      o.durationBasis = (prev.durationBasis && o.durationMin === prev.durationMin)
+        ? prev.durationBasis
+        : 'run';
+    }
     S.logs[dt] = o; save(); closeSheet(); render(); toast('已儲存');
   }
   else if (a === 'export') doExport();
@@ -1108,10 +1130,12 @@ function ingestURL() {
 
   var raw = {
     done: true, source: 'shortcut',
-    // 🔴 捷徑（或匯出檔）給的 min 是**整段運動時間**，含暖身緩和——不是純跑步時間。
-    //    課表每一堂都是「走 5 分暖身 → 跑 X 分 → 走 5 分緩和」，所以這是常態不是例外。
-    //    標成 'total'，讓下游知道它跟手動填的 'run' 不是同一個基準。
-    durationBasis: 'total',
+    /* 🔴 捷徑（或匯出檔）給的 min 是**整段運動時間**，含暖身緩和——不是純跑步時間。
+       課表每一堂都是「走 5 分暖身 → 跑 X 分 → 走 5 分緩和」，所以這是常態不是例外。
+       但只有「這次真的帶了 min」才標 'total'——下面第 3 步會沿用舊值，
+       那個舊值可能是使用者手填的純跑步時間，硬標 'total' 會把它從配速趨勢裡踢掉。
+       所以這裡先留空，等確定 min 從哪來再決定。 */
+    durationBasis: uMin != null ? 'total' : (prev.durationBasis || null),
     completedAt: prev.completedAt || new Date().toISOString(),
     km: uKm, durationMin: uMin, hrAvg: uHr, restingHr: uRhr, cadence: cadence,
     rpe: prev.rpe != null ? prev.rpe : null,

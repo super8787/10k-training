@@ -272,9 +272,15 @@
     /* ── R8：同樣配速下心率有沒有下降（新模型的核心指標）──
        他現在慢跑就 171，用「有沒有落在某個絕對區間」判斷沒有意義。
        真正代表有氧進步的是：同樣的配速，心率變低。 */
+    /* 🔴 只收 durationBasis === 'run'（純跑步時間）的紀錄。
+       'total'（捷徑／匯出檔給的整段運動時間，含暖身緩和）算出來的配速系統性慢 30-40%，
+       混進來會讓下面那道「配速差 ≤ PACE_TOL_SEC」的閘門開錯，
+       而且 R8 會把兩個假配速直接印給他看。
+       舊紀錄沒有這個欄位 → 基準未知 → 一樣不收。寧可不觸發，也不要拿錯的兩趟去比。 */
     var paced = doneAll.filter(function (d) {
       var l = logs[d.date];
-      return l && l.km > 0 && l.durationMin > 0 && typeof l.hrAvg === 'number';
+      return l && l.km > 0 && l.durationMin > 0 && typeof l.hrAvg === 'number'
+        && l.durationBasis === 'run';
     });
     if (paced.length >= 4) {
       var half = Math.floor(paced.length / 2);
