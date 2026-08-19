@@ -27,14 +27,27 @@ function hrT() { return Coach.zonesOf(PLAN); }
 /* 🔴 基準線數字只能從 plan.meta.baseline 取，不要在文案裡手抄。
    驗收四輪抓到四份手抄本：md 的「從 2K」、index.html、manifest.json，
    以及這支檔案裡的「9 分 17 秒」（與 plan.json 的 9'19" 差 2 秒）與「2 公里」。 */
-function B() { return PLAN.meta.baseline; }
-function bDate() { var d = B().date; return +d.slice(5, 7) + '/' + +d.slice(8, 10); }
+/* 缺值一律回 null，讓呼叫端整句不顯示——不要吐 "NaN 分 NaN 秒" 這種字串。
+   驗收指出：安靜出貨的壞字串比拋例外更難發現，因為沒有人會收到訊號。
+   （coach.js 的 gctNote() 也是同一個慣例：取不到就把那句話整個省略。） */
+function B() { return (PLAN && PLAN.meta && PLAN.meta.baseline) || {}; }
+function bDate() {
+  var d = B().date;
+  return (typeof d === 'string' && d.length >= 10)
+    ? +d.slice(5, 7) + '/' + +d.slice(8, 10) : null;
+}
 function bPace() {
   var t = B().paceSec;
-  return Math.floor(t / 60) + ' 分 ' + String(t % 60).padStart(2, '0') + ' 秒';
+  if (typeof t !== 'number' || !isFinite(t) || t <= 0) return null;
+  return Math.floor(t / 60) + ' 分 ' + String(Math.round(t % 60)).padStart(2, '0') + ' 秒';
 }
-function daysSinceBase() {
-  return Math.round((new Date(PLAN.meta.raceDate) - new Date(B().date)) / 864e5);
+/* 名字要講清楚算的是什麼：這是「基準線那天 → 比賽日」的固定天數（82），
+   不是「距今幾天」。原名 daysSinceBase() 會讓下一個人拿去當倒數用。 */
+function baseToRaceDays() {
+  var a = B().date, b = PLAN && PLAN.meta && PLAN.meta.raceDate;
+  if (!a || !b) return null;
+  var n = Math.round((new Date(b) - new Date(a)) / 864e5);
+  return isFinite(n) ? n : null;
 }
 /* 「達標」是相對於**那一天課表要求的步頻**，不是一個全域常數。
    踩過的前身：CAD.good 寫死 160，而課表 Block 2 起目標升到 165/170——
@@ -321,7 +334,9 @@ function renderToday() {
 
   if (t === race) {
     h += '<div class="focus alert" style="margin-top:0"><b>🏁 就是今天</b><br>' +
-      daysSinceBase() + ' 天前你只跑得動 ' + B().km + ' 公里。今天你要跑 10 公里。<br>' +
+      (baseToRaceDays() && B().km
+        ? baseToRaceDays() + ' 天前你只跑得動 ' + B().km + ' 公里。今天你要跑 10 公里。<br>'
+        : '今天你要跑 10 公里。<br>') +
       '記住唯一那件事：<b>前 2K 壓慢</b>。旁邊的人衝出去，讓他們去。</div>';
   }
 
@@ -718,8 +733,10 @@ function renderCoach() {
 
   h += '<div class="sec-h"><h2>心率區間</h2><span>HRmax ' + PLAN.meta.hrMax + '（Karvonen）</span></div>';
   h += '<div class="focus warn">這些區間是<b>看趨勢用的，不是每一堂要待著的地方</b>。' +
-    '你 ' + bDate() + ' 用 ' + bPace() + ' 配速慢跑，心率就 ' + B().hrAvg +
-    '（' + zoneOf(B().hrAvg) + '）——現在要你待在 Z2 等於整堂走路。' +
+    (bDate() && bPace() && B().hrAvg
+      ? '你 ' + bDate() + ' 用 ' + bPace() + ' 配速慢跑，心率就 ' + B().hrAvg +
+        '（' + zoneOf(B().hrAvg) + '）——現在要你待在 Z2 等於整堂走路。'
+      : '慢跑心率就會偏高是正常的，現在要你待在 Z2 等於整堂走路。') +
     '跑步時只要顧兩件事：<b>能講完一句話</b>、<b>心率別破 ' + hrT().ceiling + '</b>。' +
     '目標是同樣配速下心率慢慢往 Z3 掉。</div>';
   h += '<div class="card">';
