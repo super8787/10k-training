@@ -189,12 +189,16 @@ function sessionBlock(s, notes) {
   h += '<div class="hero-detail">' + esc(s.detail) + '</div>';
 
   if (sess.hrGate) {
-    h += '<div class="gate"><div class="gate-h">心率紅綠燈 — 這堂課只看這個，不看配速</div>' +
+    /* 2026-08-19 改：心率不再當即時開關。
+       實測他用 10 分速慢跑心率就 171，用心率 gating 會整堂走路。
+       改成說話測試當主要控制、心率只當上限。 */
+    h += '<div class="gate"><div class="gate-h">怎麼控制強度</div>' +
+      '<div class="gate-talk">' + esc(sess.hrGate.talk || '能講完一句話就對了') + '</div>' +
       '<div class="gate-b">' +
-      '<div class="gate-c stop"><div class="gate-n">' + sess.hrGate.walkAbove + '</div>' +
-      '<div class="gate-l">超過就改用走的</div></div>' +
-      '<div class="gate-c go"><div class="gate-n">' + sess.hrGate.runBelow + '</div>' +
-      '<div class="gate-l">掉回來才再跑</div></div>' +
+      '<div class="gate-c stop"><div class="gate-n">' + esc(sess.hrGate.walkAbove) + '</div>' +
+      '<div class="gate-l">心率上限，超過就走一段</div></div>' +
+      '<div class="gate-c go"><div class="gate-n">' + esc(sess.hrLo) + '-' + esc(sess.hrHi) + '</div>' +
+      '<div class="gate-l">目標區（現在會偏高，正常）</div></div>' +
       '</div></div>';
   }
 
@@ -346,16 +350,28 @@ function logCard(date, lg, sess) {
 function baselineCard() {
   var b = PLAN.meta.baseline;
   var h = '<div class="sec-h"><h2>你的起點</h2><span>' + md(b.date) + ' 實測</span></div><div class="card">';
-  h += '<div class="kv"><div class="kv-k">距離 / 時間</div><div class="kv-v">' + b.km + ' <small>km</small> · 14:42</div></div>';
-  h += '<div class="kv"><div class="kv-k">平均配速</div><div class="kv-v">7\'16" <small>/km</small></div></div>';
-  h += '<div class="kv"><div class="kv-k">平均心率</div><div class="kv-v">' + b.hrAvg +
+  // 時間與配速一律從資料導出，不要硬編（舊版寫死 14:42／7'16"，換了基準線就變假話）
+  var mm = Math.floor(b.durationSec / 60), ss = b.durationSec % 60;
+  var pm = Math.floor(b.paceSec / 60), ps = b.paceSec % 60;
+  h += '<div class="kv"><div class="kv-k">距離 / 時間</div><div class="kv-v">' + esc(b.km) +
+    ' <small>km</small> · ' + mm + ':' + String(ss).padStart(2, '0') + '</div></div>';
+  h += '<div class="kv"><div class="kv-k">平均配速</div><div class="kv-v">' + pm + '\'' +
+    String(ps).padStart(2, '0') + '" <small>/km</small></div></div>';
+  h += '<div class="kv"><div class="kv-k">平均心率</div><div class="kv-v">' + esc(b.hrAvg) +
     ' <small>bpm</small> <span class="delta down">' +
     Math.round(b.hrAvg / PLAN.meta.hrMax * 100) + '% 最大值</span></div></div>';
+  if (b.restingHr) h += '<div class="kv"><div class="kv-k">靜止心率</div><div class="kv-v">' +
+    esc(b.restingHr) + ' <small>bpm</small></div></div>';
+  if (b.vo2max) h += '<div class="kv"><div class="kv-k">心肺適能 VO₂Max</div><div class="kv-v">' +
+    esc(b.vo2max) + ' <small>mL/min·kg</small></div></div>';
   h += '<div class="kv"><div class="kv-k">步頻</div><div class="kv-v">' + b.cadence +
     ' <small>spm</small> <span class="delta down">偏低</span></div></div>';
   h += '<div class="kv"><div class="kv-k">觸地時間</div><div class="kv-v">' + b.groundContactMs +
     ' <small>ms</small> <span class="delta down">偏長</span></div></div>';
-  h += '</div><div class="focus alert">' + esc(b.note) + '</div>';
+  h += '</div><div class="focus">' + esc(b.note) + '</div>';
+  if (b.history) h += '<div class="focus warn"><b>你不是零基礎</b><br>' + esc(b.history) + '</div>';
+  if (b.prev) h += '<div class="muted" style="margin-top:10px">前一趟 ' + esc(md(b.prev.date)) +
+    '：' + esc(b.prev.km) + ' km、' + esc(b.prev.note) + '</div>';
   return h;
 }
 
@@ -641,18 +657,20 @@ function renderCoach() {
   // ⚠️ 心率要走 hrT()（唯一來源＝plan.meta.zones）；CR.HR_EASY_CEIL／HR_STEADY_CEIL
   //    現在只是 coach.js 的 fallback，讀它們會在 HRmax 改動後顯示舊數字。
   var CR = Coach.RULES, TZ = hrT();
-  [['R1', '輕鬆／長跑平均心率 > ' + TZ.steadyCeil,
+  [['R1', '輕鬆／長跑平均心率 > ' + TZ.ceiling + '（Z5 下緣）',
     '下次放慢 ' + CR.PACE_SLOWDOWN + ' 秒/km，長跑打 ' + Math.round(CR.LONG_CUT_SOFT * 10) + ' 折'],
    ['R2', '連續 ' + CR.MISS_STREAK + ' 堂沒完成', '長跑降到 ' + Math.round(CR.LONG_CUT * 100) + '%'],
    // 原本寫「心率 ≤ 144」，但實際判定是雙邊的 inZone2——110 bpm 符合「≤144」卻不觸發 R3。
    // 這一頁的標題是「沒有黑箱」，寫錯規則比別頁嚴重。
-   ['R3', '連續 ' + CR.GOOD_STREAK + ' 次輕鬆跑心率落在 Z2（' + TZ.z2lo + '-' + TZ.easyCeil + '）',
+   ['R3', '連續 ' + CR.GOOD_STREAK + ' 次輕鬆跑心率 ≤ ' + TZ.steadyCeil + '（壓進 Z3）',
     '長跑加 ' + Math.round((CR.LONG_BOOST - 1) * 100) + '%'],
    ['R4', '靜止心率比近期均值高 ≥ ' + CR.RHR_JUMP + '　<b style="color:var(--amber)">（需接手錶捷徑才會啟用）</b>', '建議今天休息'],
    ['R5', '最近 ' + CR.GOOD_STREAK + ' 次<b>實測</b>步頻平均 < ' + CR.CADENCE_MIN +
     '　<b style="color:var(--tx3)">（換算值不採計）</b>', '下堂品質課強制節拍器'],
    ['R6', '檢查點 CP1／CP2 到期或已回報', '依結果切換課表'],
-   ['R7', '本週已過課程完成率 < 50%', '提醒，但不要補課']
+   ['R7', '本週已過課程完成率 < 50%', '提醒，但不要補課'],
+   ['R8', '<b>同樣配速下</b>平均心率的變化（配速差 ≤45 秒/km 才比）',
+    '降 ≥3 下＝有氧在長；升 ≥5 下＝該減量']
   ].forEach(function (r) {
     /* r[1] 是本檔硬編的字串常數（含少量標記），非外部輸入，故不逃逸；r[2] 照常逃逸 */
     h += '<div class="rule"><div class="rule-h"><span class="rule-id">' + r[0] + '</span>' +
@@ -660,7 +678,12 @@ function renderCoach() {
   });
   h += '</div>';
 
-  h += '<div class="sec-h"><h2>心率區間</h2><span>HRmax ' + PLAN.meta.hrMax + '</span></div><div class="card">';
+  h += '<div class="sec-h"><h2>心率區間</h2><span>HRmax ' + PLAN.meta.hrMax + '（Karvonen）</span></div>';
+  h += '<div class="focus warn">這些區間是<b>看趨勢用的，不是每一堂要待著的地方</b>。' +
+    '你 8/18 用 9 分 17 秒配速慢跑，心率就 171（Z4）——現在要你待在 Z2 等於整堂走路。' +
+    '跑步時只要顧兩件事：<b>能講完一句話</b>、<b>心率別破 ' + hrT().ceiling + '</b>。' +
+    '目標是同樣配速下心率慢慢往 Z3 掉。</div>';
+  h += '<div class="card">';
   ['Z1', 'Z2', 'Z3', 'Z4', 'Z5'].forEach(function (z) {
     var o = PLAN.meta.zones[z];
     h += '<div class="kv"><div class="kv-k"><b>' + z + '</b> ' + esc(o.name) +

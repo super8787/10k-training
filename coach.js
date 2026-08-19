@@ -33,6 +33,7 @@
       z2lo:       z ? z.Z2.lo : R.HR_EASY_CEIL - 24,
       easyCeil:   z ? z.Z2.hi : R.HR_EASY_CEIL,
       steadyCeil: z ? z.Z3.hi : R.HR_STEADY_CEIL,
+      ceiling:    z ? z.Z5.lo : R.HR_STEADY_CEIL + 18,   // Z5 下緣＝真的太用力的門檻
       z5hi:       z ? z.Z5.hi : 200
     };
   }
@@ -86,7 +87,11 @@
     var hotOnes = recent.filter(function (d) {
       var l = logs[d.date];
       return (d.kind === 'easy' || d.kind === 'long') &&
-        l && typeof l.hrAvg === 'number' && l.hrAvg > T.steadyCeil;
+        /* 門檻是 ceiling（Z5 下緣）不是 steadyCeil。
+           2026-08-19 改：他目前用 10 分速慢跑心率就 171，落在 Z4。
+           拿 Z3 上緣當門檻會每一趟都判「你又跑太快」，那是雜訊不是提醒。
+           真正該提醒的是進到 Z5——那才是慢不下來。 */
+        l && typeof l.hrAvg === 'number' && l.hrAvg > T.ceiling;
     });
     if (hotOnes.length > 0) {
       var last = hotOnes[hotOnes.length - 1];
@@ -98,12 +103,12 @@
         id: 'R1', level: hotOnes.length >= 2 ? 'crit' : 'hot', icon: '🔥',
         title: '你又跑太快了',
         detail: '最近 ' + hotOnes.length + ' 次輕鬆／長跑的平均心率超過 ' +
-          T.steadyCeil + '（最近一次 ' + lastHr + '）。輕鬆跑該落在 ' +
+          T.ceiling + '（最近一次 ' + lastHr + '）。這個強度慢不下來了。目前的目標區是 ' +
           zoneLo + '-' + T.easyCeil + '。' +
           '下一次同類型的課，配速主動放慢 ' + R.PACE_SLOWDOWN +
           ' 秒/公里，長跑目標時間先打 ' + Math.round(R.LONG_CUT_SOFT * 10) +
           ' 折。慢下來不是退步，是唯一能讓你跑完 10K 的路。',
-        rule: 'R1｜easy/long 課平均心率 > ' + T.steadyCeil + ' bpm'
+        rule: 'R1｜easy/long 課平均心率 > ' + T.ceiling + ' bpm（Z5 下緣）'
       });
     }
 
@@ -132,7 +137,9 @@
     if (streak === 0 && easyRecent.length === R.GOOD_STREAK) {
       var allInZone = easyRecent.every(function (d) {
         var l = logs[d.date];
-        return l && typeof l.hrAvg === 'number' && inZone2(plan, l.hrAvg);
+        /* 目標是把同樣配速的心率壓進 Z3（他現在在 Z4）。
+           用 inZone2 會永遠不成立——Z2 對現在的他等於走路。 */
+        return l && typeof l.hrAvg === 'number' && l.hrAvg <= T.steadyCeil;
       });
       if (allInZone) {
         adj.longRunFactor = Math.max(adj.longRunFactor, R.LONG_BOOST);
@@ -140,10 +147,10 @@
         advices.push({
           id: 'R3', level: 'good', icon: '📈',
           title: '有氧基礎正在長出來',
-          detail: '最近 ' + R.GOOD_STREAK + ' 次輕鬆跑心率都待在 Z2（' + T.z2lo + '-' + T.easyCeil +
+          detail: '最近 ' + R.GOOD_STREAK + ' 次輕鬆跑心率都壓進 Z3（' + T.z2lo + '-' + T.steadyCeil +
             '）而且都完成了。這正是計畫要的。下次長跑可以加 ' +
             Math.round((R.LONG_BOOST - 1) * 100) + '%，但心率規則不變。',
-          rule: 'R3｜連續 ' + R.GOOD_STREAK + ' 次 easy 課完成且平均心率落在 Z2（' + T.z2lo + '-' + T.easyCeil + '）'
+          rule: 'R3｜連續 ' + R.GOOD_STREAK + ' 次 easy 課完成且平均心率 ≤ ' + T.steadyCeil
         });
       }
     }
@@ -248,6 +255,49 @@
             '照原本的課表往下走就好。',
           rule: 'R7｜本週已過課程完成率 < 50%'
         });
+      }
+    }
+
+    /* ── R8：同樣配速下心率有沒有下降（新模型的核心指標）──
+       他現在慢跑就 171，用「有沒有落在某個絕對區間」判斷沒有意義。
+       真正代表有氧進步的是：同樣的配速，心率變低。 */
+    var paced = doneAll.filter(function (d) {
+      var l = logs[d.date];
+      return l && l.km > 0 && l.durationMin > 0 && typeof l.hrAvg === 'number';
+    });
+    if (paced.length >= 4) {
+      var half = Math.floor(paced.length / 2);
+      var early = paced.slice(0, half), late = paced.slice(-half);
+      var mean = function (arr, f) {
+        return arr.reduce(function (a, d) { return a + f(logs[d.date]); }, 0) / arr.length;
+      };
+      var pace = function (l) { return l.durationMin * 60 / l.km; };   // 秒/公里
+      var p0 = mean(early, pace), p1 = mean(late, pace);
+      var h0 = mean(early, function (l) { return l.hrAvg; });
+      var h1 = mean(late, function (l) { return l.hrAvg; });
+      var fmt = function (sec) {
+        return Math.floor(sec / 60) + "'" + String(Math.round(sec % 60)).padStart(2, '0') + '"';
+      };
+      if (Math.abs(p1 - p0) <= 45) {          // 配速差在 45 秒/km 內才有可比性
+        if (h1 <= h0 - 3) {
+          advices.push({
+            id: 'R8', level: 'good', icon: '💚',
+            title: '有氧基礎確實在長：同樣配速，心率降了 ' + Math.round(h0 - h1) + ' 下',
+            detail: '前期 ' + fmt(p0) + '/km 時平均心率 ' + h0.toFixed(0) +
+              '，最近 ' + fmt(p1) + '/km 時是 ' + h1.toFixed(0) + '。' +
+              '這就是這份計畫真正要看的東西——不是你跑多快，是同樣的速度變得多輕鬆。',
+            rule: 'R8｜配速相近（差 ≤45 秒/km）且平均心率下降 ≥3 下'
+          });
+        } else if (h1 >= h0 + 5) {
+          advices.push({
+            id: 'R8', level: 'hot', icon: '🫀',
+            title: '同樣配速下心率反而上升 ' + Math.round(h1 - h0) + ' 下',
+            detail: '前期 ' + fmt(p0) + '/km 時 ' + h0.toFixed(0) + '，最近 ' + fmt(p1) + '/km 時 ' +
+              h1.toFixed(0) + '。常見原因是累積疲勞、睡不夠、或快生病。' +
+              '這幾天把強度降下來，別急著補課。',
+            rule: 'R8｜配速相近但平均心率上升 ≥5 下'
+          });
+        }
       }
     }
 
