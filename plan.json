@@ -1296,7 +1296,7 @@
    "zone": "Z3",
    "hrLo": 152,
    "hrHi": 164,
-   "hrMode": "target",
+   "hrMode": "ceilingOnly",
    "focus": "★ 前 2K 是全場最危險的地方——所有人都會衝，你不要。前 2K 心率壓在 164 以下。",
    "cadence": 170,
    "km": 10.0,

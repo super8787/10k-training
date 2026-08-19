@@ -24,6 +24,29 @@ var HR = { min: 30, max: 250 };
 /* 心率門檻一律走 Coach.zonesOf(PLAN)，唯一來源是 plan.meta.zones（由 HRmax 算出）。
    踩過：coach.js 抄一份 144/160、app.js 再抄一份，HRmax 一改三邊打架。 */
 function hrT() { return Coach.zonesOf(PLAN); }
+/* 🔴 心率判定只能有一份。驗收實測：紀錄卡改好了、記錄面板還用 `kind` 猜處方，
+   65 格裡有 26 格兩邊說法不同（全部品質課＋全部比賽日）。最具體的兩個：
+     節奏跑輸入 160 → 面板說「Z3 穩定」沒事，存檔後紀錄卡說「強度不足（要 165-177）」
+     比賽日輸入 190 → 面板完全沒警示，紀錄卡說「超過上限 178」
+   而面板是他**先**看到的那個。所以兩邊都呼叫這支，不要各判各的。
+
+   hrMode 由課表提供，因為區間的語意本來就不同：
+     'ceiling'（輕鬆跑／長跑／比賽）＝上限，低於它不是問題
+     'target'（品質課）＝目標帶，低於它就是練不到東西 */
+function hrVerdict(sess, hr) {
+  if (!sess || !hr) return null;
+  var lo = sess.hrLo, hi = sess.hrHi, ceil = hrT().ceiling, band = lo + '-' + hi;
+  if (hr > ceil)        return { cls: 'down', text: '超過上限 ' + ceil + '，該改走路' };
+  // 比賽日只看硬上限。那個 152-164 是「前 2K 壓在 164 以下」的意思，
+  // 不是整場平均的目標帶——10K 平均 170 很正常，標紅只會嚇到人。
+  if (sess.hrMode === 'ceilingOnly') return { cls: 'up', text: '沒超過上限 ' + ceil };
+  if (hi && hr > hi)    return { cls: 'down', text: '偏高（這堂 ' + band + '）' };
+  if (lo && hr >= lo)   return { cls: 'up',   text: '✓ 落在這堂的區間' };
+  // 低於下界：ceiling 型只陳述事實，不要替他解釋成「有氧在長」——
+  // 心率單獨分不出「有氧變好」和「跑更慢／改用走的」，那是 R8 的工作（它會比同配速）。
+  if (sess.hrMode === 'ceiling') return { cls: 'up', text: '✓ 沒超標（這堂 ' + band + '）' };
+  return { cls: 'warn', text: '強度不足（這堂要 ' + band + '）' };
+}
 /* 🔴 基準線數字只能從 plan.meta.baseline 取，不要在文案裡手抄。
    驗收四輪抓到四份手抄本：md 的「從 2K」、index.html、manifest.json，
    以及這支檔案裡的「9 分 17 秒」（與 plan.json 的 9'19" 差 2 秒）與「2 公里」。 */
@@ -388,20 +411,8 @@ function logCard(date, lg, sess) {
          ③ 長跑落在 Z3 沒有標記，但 Z3 就是長跑的處方（coach.js 的 R3 判準也是這樣寫的）
             ——跑進處方區得到「沒消息」，跑進更低的 Z2 反而得到綠勾。
        改成跟該堂自己的區間比，三格自動消失，而且以後改課表不用回來改這裡。 */
-    var lo = sess.hrLo, hi = sess.hrHi, ceil = hrT().ceiling;
-    var band = lo + '-' + hi;
-    // hrMode 由課表提供：'ceiling' = 區間是上限（低於它是進步），'target' = 目標帶
-    var isCeil = sess.hrMode === 'ceiling';
-    if (lg.hrAvg > ceil)
-      warn = ' <span class="delta down">超過上限 ' + ceil + '</span>';
-    else if (hi && lg.hrAvg > hi)
-      warn = ' <span class="delta down">偏高（這堂 ' + band + '）</span>';
-    else if (lo && lg.hrAvg >= lo)
-      warn = ' <span class="delta up">✓ 落在這堂的區間</span>';
-    else if (isCeil)
-      warn = ' <span class="delta up">✓ 比目標更輕鬆（' + band + '）——有氧在長</span>';
-    else
-      warn = ' <span class="delta warn">強度不足（這堂要 ' + band + '）</span>';
+    var v = hrVerdict(sess, lg.hrAvg);
+    if (v) warn = ' <span class="delta ' + v.cls + '">' + v.text + '</span>';
     rows.push(['平均心率', esc(lg.hrAvg) + ' <small>bpm · ' + esc(z) + '</small>' + warn]);
   }
   if (lg.cadence) {
@@ -856,9 +867,11 @@ function drawSheet(sess) {
     h += '<div class="focus">換算平均配速：<b>' + pace(draft.km, draft.durationMin) + ' / 公里</b></div>';
   }
   if (draft.hrAvg) {
-    var over = (sess.kind === 'easy' || sess.kind === 'long') && draft.hrAvg > hrT().steadyCeil;
-    h += '<div class="focus' + (over ? ' alert' : '') + '">心率 ' + draft.hrAvg + ' = <b>' +
-      zoneOf(draft.hrAvg) + '</b>' + (over ? '　⚠️ 這堂課跑太快了' : '') + '</div>';
+    // 跟紀錄卡走同一支 hrVerdict，不要在這裡另判一次
+    var pv = hrVerdict(sess, draft.hrAvg);
+    var bad = pv && (pv.cls === 'down' || pv.cls === 'warn');
+    h += '<div class="focus' + (bad ? ' alert' : '') + '">心率 ' + draft.hrAvg + ' = <b>' +
+      zoneOf(draft.hrAvg) + '</b>' + (pv ? '　' + (bad ? '⚠️ ' : '') + pv.text : '') + '</div>';
   }
 
   h += '<div class="btn-row"><button class="btn" data-act="save">儲存</button>';
