@@ -53,6 +53,12 @@
    "restingHr": 60,
    "vo2max": 36.3,
    "walkPct": 0,
+   "hrDist": {
+    "threshold": 160,
+    "pctAbove": 95.8,
+    "hrMin": 138,
+    "samples": 337
+   },
    "cadenceSource": "watch",
    "note": "連續跑 28 分、3.01 公里，全程沒有走。9'19\" 配速下平均心率 171、最高 180，95.8% 的時間在 160 以上。337 筆零空窗的乾淨資料。",
    "prev": {
@@ -84,14 +90,14 @@
    {
     "id": 3,
     "name": "推距離",
-    "weeks": "W8-W10",
+    "weeks": "W7-W10",
     "goal": "長跑推到 8K，加入節奏跑"
    },
    {
     "id": 4,
     "name": "減量＋比賽",
-    "weeks": "W11",
-    "goal": "大減量、保頻率、11/08 完賽"
+    "weeks": "W11-W12",
+    "goal": "大減量、保頻率、11/8 完賽"
    }
   ],
   "generatedFrom": "scripts/build_plan.py"

@@ -16,19 +16,39 @@ var KEY = 'coach10k.v1';
 var CAD = {
   warn:   Coach.RULES.CADENCE_MIN,     // 與 R5 判定門檻同一個數字
   target: Coach.RULES.CADENCE_TARGET,  // 與教練引擎的目標步頻同一個數字
-  good:   160, min: 60, max: 260
+  // good 已移除：達標門檻改成「那天課表要求的步頻」，見 cadGoalOn()。
+  // 不要再加回一個全域達標值——它一定會跟課表的分段目標打架。
+  min: 60, max: 260
 };
 var HR = { min: 30, max: 250 };
 /* 心率門檻一律走 Coach.zonesOf(PLAN)，唯一來源是 plan.meta.zones（由 HRmax 算出）。
    踩過：coach.js 抄一份 144/160、app.js 再抄一份，HRmax 一改三邊打架。 */
 function hrT() { return Coach.zonesOf(PLAN); }
-function cadenceBadge(v) {
-  return v >= CAD.good ? ['up', '✓ 達標']
-       : v >= CAD.warn ? ['warn', '差 ' + (CAD.good - v)]
+/* 「達標」是相對於**那一天課表要求的步頻**，不是一個全域常數。
+   踩過的前身：CAD.good 寫死 160，而課表 Block 2 起目標升到 165/170——
+   同一筆紀錄會在記錄表單顯示「目標 170」、在紀錄列與趨勢圖顯示「✓ 達標」。
+   ⚠️ 而且一定要用「那天的」課表值，不能用今天的：
+      Block 1 存的 160 若拿 Block 3 的門檻回頭判，歷史紀錄會變臉成「差 10」。
+      已經達標的過去不該因為目標上調而變成沒達標。 */
+function cadGoalOn(date) {
+  if (!date) return CAD.target;
+  var exact = PLAN.days.filter(function (d) { return d.date === date; })[0];
+  if (exact && exact.cadence) return exact.cadence;
+  // 休息日／開訓前沒有課，取「該日之前最近一堂」的目標；再取不到才用 fallback。
+  var before = PLAN.days.filter(function (d) { return d.date <= date && d.cadence; });
+  if (before.length) return before[before.length - 1].cadence;
+  var after = PLAN.days.filter(function (d) { return d.cadence; });
+  return after.length ? after[0].cadence : CAD.target;
+}
+function cadenceBadge(v, date) {
+  var g = cadGoalOn(date);
+  return v >= g ? ['up', '✓ 達標']
+       : v >= CAD.warn ? ['warn', '差 ' + (g - v)]
        : ['down', '偏低'];
 }
-function cadenceColor(v) {
-  return v >= CAD.good ? 'var(--green)'
+function cadenceColor(v, date) {
+  var g = cadGoalOn(date);
+  return v >= g ? 'var(--green)'
        : v >= CAD.warn ? 'var(--amber)' : 'var(--red)';
 }
 /* 心率的判定同樣只能有一份。踩過：徽章判 `<=144` 就給「✓ Z2」，
@@ -324,7 +344,7 @@ function logCard(date, lg, sess) {
     rows.push(['平均心率', esc(lg.hrAvg) + ' <small>bpm · ' + esc(z) + '</small>' + warn]);
   }
   if (lg.cadence) {
-    var cb = cadenceBadge(lg.cadence);
+    var cb = cadenceBadge(lg.cadence, sess.date);
     rows.push(['步頻', esc(lg.cadence) + ' <small>spm' +
       (lg.cadenceDerived ? ' · 換算值' : '') + '</small>' +
       ' <span class="delta ' + cb[0] + '">' + cb[1] + '</span>']);
@@ -501,7 +521,8 @@ function sparkline(vals, opt) {
       '" fill="var(--green)" opacity="0.13"/>';
   }
   var dots = pts.map(function (p, i) {
-    var col = opt.dotColor ? opt.dotColor(vals[i]) : 'var(--accent)';
+    // 第二個參數是索引：步頻的點色要跟「那一天」的課表目標比，不是全域門檻。
+    var col = opt.dotColor ? opt.dotColor(vals[i], i) : 'var(--accent)';
     // 換算值畫空心圈，跟實測值一眼分得開
     var hollow = opt.derived && opt.derived[i];
     return '<circle cx="' + p[0].toFixed(1) + '" cy="' + p[1].toFixed(1) +
@@ -576,11 +597,14 @@ function renderData() {
   var cads = done.filter(function (d) { return S.logs[d.date].cadence; });
   if (cads.length >= 2) {
     var cv = cads.map(function (d) { return S.logs[d.date].cadence; });
-    h += '<div class="sec-h"><h2>步頻趨勢</h2><span>越高越好，目標 ' + CAD.target + '</span></div><div class="card">';
-    // 徽章門檻要跟圖上的點色與綠區一致（≥160 才算達標），否則同一張卡會自相矛盾：
+    // 目標會隨 Block 上調，所以標題寫「目前目標」＝今天這堂的要求，不是一個固定數字。
+    var goalNow = cadGoalOn(Coach.ymd(new Date())) ;
+    h += '<div class="sec-h"><h2>步頻趨勢</h2><span>越高越好，目前目標 ' + goalNow + '</span></div><div class="card">';
+    // 徽章門檻要跟圖上的點色與綠區一致，否則同一張卡會自相矛盾：
     // 155 spm 曾經同時顯示綠色 ✓、琥珀色的點、以及落在綠區外的位置。
+    var lastDate = cads[cads.length - 1].date;
     var lastCad = cv[cv.length - 1];
-    var badge = cadenceBadge(lastCad);
+    var badge = cadenceBadge(lastCad, lastDate);
     h += '<div class="kv" style="border:none;padding-top:0"><div class="kv-k">最近一次</div>' +
       '<div class="kv-v">' + esc(lastCad) + ' <small>spm</small>' +
       '<span class="delta ' + badge[0] + '">' + badge[1] + '</span></div></div>';
@@ -593,13 +617,15 @@ function renderData() {
     var cMax = Math.max(175, Math.max.apply(null, cv) + 5);
     h += sparkline(cv, {
       min: cMin, max: cMax,
-      // 綠區是「CAD.good 以上」的開放區間，上緣要跟著圖頂走。
+      // 綠區是「目前目標以上」的開放區間，上緣要跟著圖頂走。
       // 寫死 175 的話，步頻 >175 的點會畫在綠帶「上方」，跟文案「160 以上」對不起來。
-      bandLo: CAD.good, bandHi: cMax, derived: cDeriv,
-      dotColor: cadenceColor
+      // 綠區用「目前目標」畫；每個點各自跟它那天的目標比（dotColor 吃日期）。
+      bandLo: goalNow, bandHi: cMax, derived: cDeriv,
+      dotColor: function (v, i) { return cadenceColor(v, cads[i] && cads[i].date); }
     });
     h += '<div class="muted center" style="margin-top:6px">起點 ' +
-      PLAN.meta.baseline.cadence + ' spm。綠區 = ' + CAD.good + ' 以上，目標 ' + CAD.target + '。</div>';
+      PLAN.meta.baseline.cadence + ' spm。綠區 = 目前目標 ' + goalNow + ' 以上。' +
+      '每個點是跟<b>那天</b>課表的目標比，所以目標上調不會讓過去的紀錄變臉。</div>';
     if (nDeriv) {
       h += '<div class="muted center" style="margin-top:4px">空心圈 = 舊版換算值（' + nDeriv +
         ' / ' + cv.length + ' 筆），實測誤差可達 26 spm，<b>不會拿來改課表</b>。' +
