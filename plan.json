@@ -1108,7 +1108,7 @@
    "hrLo": 152,
    "hrHi": 164,
    "focus": "很輕鬆。不要因為緊張就跑快——賽前多跑不會變強，只會變累。",
-   "cadence": 167,
+   "cadence": 170,
    "km": null,
    "checkpoint": null,
    "hrGate": {
@@ -1134,7 +1134,7 @@
    "hrLo": 152,
    "hrHi": 164,
    "focus": "加速只是喚醒神經。跑完應該覺得「還想再跑」。",
-   "cadence": 167,
+   "cadence": 170,
    "km": null,
    "checkpoint": null,
    "hrGate": {
@@ -1160,7 +1160,7 @@
    "hrLo": 152,
    "hrHi": 164,
    "focus": "★ 賽前最後一次有份量的長跑。之後只剩鬆腿。",
-   "cadence": 167,
+   "cadence": 170,
    "km": null,
    "checkpoint": null,
    "hrGate": {
@@ -1186,7 +1186,7 @@
    "hrLo": 152,
    "hrHi": 164,
    "focus": "開始收。",
-   "cadence": 167,
+   "cadence": 170,
    "km": null,
    "checkpoint": null,
    "hrGate": {
@@ -1212,7 +1212,7 @@
    "hrLo": 152,
    "hrHi": 164,
    "focus": "賽前最後一次。非常短、非常慢。裝備前一晚全部擺好。",
-   "cadence": 167,
+   "cadence": 170,
    "km": null,
    "checkpoint": null,
    "hrGate": {
@@ -1238,7 +1238,7 @@
    "hrLo": 152,
    "hrHi": 164,
    "focus": "★ 前 2K 是全場最危險的地方——所有人都會衝，你不要。前 2K 心率壓在 164 以下。",
-   "cadence": 167,
+   "cadence": 170,
    "km": 10.0,
    "checkpoint": null,
    "hrGate": {

@@ -178,6 +178,14 @@
       }
     }
 
+    /* 觸地時間只能有一個來源＝plan.meta.baseline。
+       2026-08-19 驗收抓到：這裡硬寫 289ms（8/14 的值），但 baseline 已是 313（8/18）。
+       同一個 App 兩個值，而且 289 是比較短的那個——拿它當「你觸地太長」的證據，論證方向是反的。 */
+    function gctNote(p) {
+      var g = p && p.meta && p.meta.baseline && p.meta.baseline.groundContactMs;
+      return g ? '（你的觸地時間 ' + g + 'ms 就是這樣來的）。' : '。';
+    }
+
     /* ── R5：步頻偏低 ──
        只採用「實測」步頻。換算值（cadenceDerived）不參與，因為 HealthKit 沒有跑步步頻型別，
        換算值受步幅估計誤差影響，不足以拿來改課表。實測值＝使用者在手錶上看到數字後手動填的。 */
@@ -197,7 +205,7 @@
           title: '步頻還是偏低（' + cadAvg.toFixed(1) + ' 步/分）',
           detail: '最近 ' + R.GOOD_STREAK + ' 次平均 ' + cadAvg.toFixed(1) +
             '，低於 ' + R.CADENCE_MIN + '。步頻低代表你在跨大步、騰空久、落地衝擊大' +
-            '（你的觸地時間 289ms 就是這樣來的）。下一堂品質課請務必開節拍器，' +
+            gctNote(plan) + '下一堂品質課請務必開節拍器，' +
             '小步快踩，腳落在身體正下方。這是降低受傷率最有效的單一動作。',
           rule: 'R5｜最近 ' + R.GOOD_STREAK + ' 次平均步頻 < ' + R.CADENCE_MIN + ' spm'
         });
