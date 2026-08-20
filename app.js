@@ -1269,7 +1269,9 @@ function boot() {
               實測 GitHub Pages 的 404 body 有 9,379 bytes，
               無條件顯示會讓使用者看到 120 個字的 `<!DOCTYPE html>…`，比「HTTP 404」更難懂。
               而「第一次造訪 ＋ 部署中 404」時還沒有 SW，走的正是這條。 */
-        var ct = (r.headers && r.headers.get && r.headers.get('Content-Type')) || '';
+        // 媒體類型依 RFC 9110 不分大小寫。SW 自己一律寫小寫，所以從自家程式到不了，
+        // 但反向代理或未來改寫時會踩。
+        var ct = ((r.headers && r.headers.get && r.headers.get('Content-Type')) || '').toLowerCase();
         if (ct.indexOf('text/plain') === -1) throw new Error('HTTP ' + r.status);
         return r.text().catch(function () { return ''; }).then(function (msg) {
           throw new Error((msg || '').trim().slice(0, 120) || ('HTTP ' + r.status));

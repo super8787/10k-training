@@ -1,7 +1,7 @@
 /* 10K 教練 — Service Worker
    策略：app shell 走 cache-first（離線可開），plan.json 走 network-first（課表可更新）
    訓練紀錄不經過這裡，一律存在 localStorage。 */
-const VERSION = 'v73';
+const VERSION = 'v74';
 const SHELL = 'shell-' + VERSION;
 /* 🔴 課表存在**不隨版本清空**的 cache。
    踩過：plan.json 原本存在 shell-vNN 裡，而 activate 會刪掉所有 key !== SHELL 的 cache
@@ -23,12 +23,16 @@ self.addEventListener('install', e => {
 self.addEventListener('activate', e => {
   e.waitUntil((async () => {
     let keys = [];
+    let rescuedFrom = null;      // 課表是從哪個舊 cache 搬過來的
+    let migrated = false;        // 這次有沒有成功搬到 DATA
     try {
       keys = await caches.keys();
       // 🔴 先搬再刪。舊的 plan.json 在 shell-v70 之類的舊 cache 裡，
       //    先刪再搬會搬到一個已經空掉的地方（第一版就是這樣寫的，等於沒搬）。
       const data = await caches.open(DATA);
-      if (!(await data.match(PLAN, { ignoreSearch: true }))) {
+      if (await data.match(PLAN, { ignoreSearch: true })) {
+        migrated = true;                       // DATA 本來就有，不需要搬
+      } else {
         // 🔴 **從新到舊**找。caches.keys() 回的是建立順序（最舊在前），
         //    正著找會在「上次 activate 被中斷、留下兩個舊 shell」時挑到最舊的那份課表。
         for (const k of keys.slice().reverse()) {
@@ -36,27 +40,39 @@ self.addEventListener('activate', e => {
           const old = await caches.open(k);
           const hit = await old.match(PLAN, { ignoreSearch: true });
           if (hit) {
+            rescuedFrom = k;
             // put 之前再確認一次：這中間可能已經有人寫進較新的一份
             if (!(await data.match(PLAN, { ignoreSearch: true }))) {
               await data.put(PLAN, hit);
             }
+            migrated = true;
             break;
           }
         }
+        if (rescuedFrom === null) migrated = true;   // 舊 cache 裡本來就沒有課表
       }
     } catch (err) {
-      /* 🔴 搬遷失敗不能擋住後面的清理與 claim。
-         驗收實測：任一 cache 操作丟例外 → activate 整個拋出 → clients.claim() 不跑、
-         舊 cache 不刪，於是留下「殘留舊 shell」——而那正是「搬到最舊那份」的前提。
-         一次失敗會餵養下一個 bug，所以這裡吞掉：課表留在舊 shell 頂多是這次沒搬到，
-         下次 activate 還有機會（上面的 for 迴圈會掃所有舊 cache）。 */
+      /* 搬遷失敗不能擋住後面的清理與 claim——一次拋出的 activate 會留下殘留舊 shell，
+         而那正是「搬到最舊那份」的前提。但**不要靜靜吞掉**：留一行 warn，
+         而且下面的清理要跳過「還握著課表、我們卻沒搬成功」的那個 cache。 */
+      console.warn('[sw] 課表搬遷失敗，保留舊 cache 等下次 activate', err);
     }
     try {
-      // DATA 要留著——它裝的是課表的離線副本，不隨版本汰換
-      await Promise.all(
-        keys.filter(k => k !== SHELL && k !== DATA).map(k => caches.delete(k).catch(() => {}))
-      );
-    } catch (err) { /* 清理失敗不擋 claim */ }
+      // 🔴 只有確定課表已經在 DATA 手上，才可以刪掉來源。
+      //    實測（v73 驗收）：open 失敗／舊 cache match 失敗／DATA put 配額爆這三種，
+      //    catch 吞掉之後另一個 try 照樣拿著滿的 keys 把來源刪掉——**沒有下次**。
+      //    我上一版的註解說「下次 activate 還有機會」，那句話被實測推翻了。
+      const keep = (!migrated && rescuedFrom) ? rescuedFrom : null;
+      const doomed = keys.filter(k => k !== SHELL && k !== DATA && k !== keep);
+      if (!migrated && keep === null) {
+        // 連來源是誰都不知道（keys 拿到了但 open/match 就炸了）→ 這輪一個都不刪
+        console.warn('[sw] 不確定課表在哪，這次不清理舊 cache');
+      } else {
+        await Promise.all(doomed.map(k => caches.delete(k).catch(() => {})));
+      }
+    } catch (err) {
+      console.warn('[sw] 清理舊 cache 失敗', err);
+    }
     await self.clients.claim();
   })());
 });
