@@ -168,7 +168,14 @@ function toIso(v) {
   if (typeof v !== 'string') return null;
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})$/.test(v)) return null;
   var t = new Date(v);
-  return isNaN(t.getTime()) ? null : t.toISOString();
+  if (isNaN(t.getTime())) return null;
+  // 🔴 V8 對不存在的日期會**自動進位**而不是回 Invalid Date：
+  //    2026-02-30 → 2026-03-02、2027-02-29 → 2027-03-01。
+  //    同一支檔案的 sanitizeLogs 用日期往返比對擋得住，這裡不擋就兩支嚴格度不一致。
+  //    比對日期部分（時區位移會改時刻但不該改成一個不存在的日期）。
+  var ymd = v.slice(0, 10), back = new Date(ymd + 'T00:00:00Z');
+  if (isNaN(back.getTime()) || back.toISOString().slice(0, 10) !== ymd) return null;
+  return t.toISOString();
 }
 function isoOrNow(v) { return toIso(v) || new Date().toISOString(); }
 function sanitizeLogs(logs) {
@@ -950,7 +957,8 @@ function seedFor(k, sess) {
   if (k === 'cadence')    return (sess && sess.cadence) || CAD.target;
   if (k === 'durationMin') return (sess && sess.runMin) || lo;
   if (k === 'restingHr')  return b.restingHr || lo;
-  if (k === 'rpe')        return 3;
+  // 用範圍中點，不要寫死 3——LOG_NUM.rpe 一改這裡就會不同步
+  if (k === 'rpe')        return Math.round((LOG_NUM.rpe[0] + LOG_NUM.rpe[1]) / 2);
   if (k === 'km') {
     if (sess && sess.km) return sess.km;
     // 課表沒給距離（大多數訓練日以時間計）→ 用該堂跑步分鐘 ÷ 基準線配速估一個起點，
@@ -1208,7 +1216,9 @@ function ingestURL() {
   }
 
   var o = sanitizeLog(raw);
-  // 淨化失敗就別寫——寫進 null 會讓那天的紀錄變成一個假的「有資料」節點
+  // 淨化失敗就別寫——寫進 null 會讓那天的紀錄變成一個假的「有資料」節點。
+  // ⚠️ 誠實標註：以現行程式路徑這條到不了（raw 是物件字面值，本函式內無第二個賦值點），
+  //    所以它是防未來改動的守衛，不是修掉了一個現存的 bug。
   if (!o) { toast('同步的資料格式不對，沒有寫入'); return true; }
   S.logs[d] = o; save();
   history.replaceState(null, '', location.pathname);
@@ -1252,7 +1262,13 @@ function boot() {
   S = load();
   fetch('plan.json', { cache: 'no-cache' })
     .then(function (r) {
-      if (!r.ok) throw new Error('HTTP ' + r.status);
+      if (!r.ok) {
+        // Service Worker 在離線／404 時會回一句中文說明，讀出來給人看，
+        // 不要只顯示「HTTP 503」——那句話寫得再細也沒人看得到。
+        return r.text().catch(function () { return ''; }).then(function (msg) {
+          throw new Error((msg || '').trim().slice(0, 120) || ('HTTP ' + r.status));
+        });
+      }
       return r.json();
     })
     .then(function (p) {

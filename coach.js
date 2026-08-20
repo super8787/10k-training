@@ -21,6 +21,7 @@
     PACE_TOL_SEC: 45,
     MISS_STREAK: 2,      // 連續幾次沒完成就降階
     GOOD_STREAK: 3,      // 連續幾次達標就加量
+    CP_LEAD_DAYS: 14,    // 檢查點提前幾天開始提醒（條件與文案共用這一份）
     LONG_CUT: 0.80,      // R2 降階時長跑乘數
     LONG_CUT_SOFT: 0.90, // R1 心率過高時長跑乘數
     LONG_BOOST: 1.10,    // 加量時長跑乘數
@@ -236,13 +237,13 @@
       var cp = d.checkpoint, l = logs[d.date];
       if (d.date > todayStr) {
         var dl = Math.round((new Date(d.date) - new Date(todayStr)) / 864e5);
-        if (dl <= 14) {
+        if (dl <= R.CP_LEAD_DAYS) {
           advices.push({
             id: cp.id, level: 'info', icon: '🚩',
             title: cp.id + ' 檢查點還有 ' + dl + ' 天（' + d.date.slice(5).replace('-', '/') + '）',
             detail: '測驗內容：' + cp.test + '。\n通過標準：' + cp.passRule +
               '。\n沒通過的話：' + cp.onFail,
-            rule: 'R6｜檢查點 ' + cp.id + ' 於 14 天內到期'
+            rule: 'R6｜檢查點 ' + cp.id + ' 於 ' + R.CP_LEAD_DAYS + ' 天內到期'
           });
         }
       } else if (l && l.done && l.checkpointResult) {
@@ -276,17 +277,25 @@
             '\n\n跑完記得在紀錄裡回報結果，後半段課表要照這個結果調整。',
           rule: 'R6｜檢查點 ' + cp.id + ' 就在今天'
         });
-      } else {
+      } else if (days.some(function (x) {
+        return x.kind === 'long' && !x.checkpoint && x.date > todayStr;
+      })) {
         /* 日期過了、也沒有完成紀錄＝漏掉了。不提醒的話這個檢查點就靜靜消失，
-           而課表後半段的降階判斷正是靠它。 */
+           而課表後半段的降階判斷正是靠它。
+           🔴 上界不是「比賽日之前」，是「**還有可調整的長跑**」——這條提示的整個理由
+              就是「後半段課表要照這個結果決定要不要降階」。沒有長跑可調的時候（減量期、
+              比賽日當天、賽後）講這句話沒有意義，而 level='hot' 會把它排到教練頁最上面。
+              （測過：無上界時賽後 365 天仍顯示「過了 405 天」。）
+           🔴 也要分辨「按過今天沒跑」——那是有紀錄的，說「還沒有紀錄」對他是假話。 */
         var late = Math.round((new Date(todayStr) - new Date(d.date)) / 864e5);
+        var skipped = l && l.skipped === true;
         advices.push({
           id: cp.id, level: 'hot', icon: '⚠️',
-          title: cp.id + ' 檢查點過了 ' + late + ' 天，還沒有紀錄',
+          title: cp.id + ' 檢查點過了 ' + late + ' 天，' + (skipped ? '你標了沒跑' : '還沒有紀錄'),
           detail: '原訂 ' + d.date.slice(5).replace('-', '/') + ' 要測「' + cp.test +
             '」。補做一次或直接回報結果都可以——' +
             '後半段課表要照這個結果決定要不要降階。',
-          rule: 'R6｜檢查點 ' + cp.id + ' 已過期且無紀錄'
+          rule: 'R6｜檢查點 ' + cp.id + (skipped ? ' 已過期且標為未跑' : ' 已過期且無紀錄')
         });
       }
     });
@@ -466,13 +475,17 @@
           (f < 1 ? '降階' : '加量') + ' ' + Math.round(Math.abs(f - 1) * 100) + '%）');
       }
     }
-    if (adj.paceSlowdownSec && (s.kind === 'easy' || s.kind === 'long')) {
+    /* 🔴 檢查點是測驗，任何調整都不套——不是只有長跑量。
+       原本只有 longRunFactor 有 `!s.checkpoint` 守衛，配速放慢與跑走交替沒有，
+       於是 nextLongNote() 的但書寫「測驗不調整、那一堂照原訂內容跑」，
+       而 CP1 的課卡上照樣出現「配速主動放慢 30 秒/公里」——兩個畫面自相矛盾。 */
+    if (adj.paceSlowdownSec && !s.checkpoint && (s.kind === 'easy' || s.kind === 'long')) {
       notes.push('配速主動放慢 ' + adj.paceSlowdownSec + ' 秒/公里');
     }
     if (adj.forceCadenceDrill && s.kind === 'quality') {
       notes.push('這堂務必開節拍器（' + (s.cadence || R.CADENCE_TARGET) + ' spm）');
     }
-    if (adj.runWalkMode && s.kind === 'long') {
+    if (adj.runWalkMode && !s.checkpoint && s.kind === 'long') {
       notes.push('已切換跑走交替模式：跑 8 分／走 1 分，重複到達標');
     }
     return { session: s, notes: notes };

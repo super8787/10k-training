@@ -1,8 +1,15 @@
 /* 10K 教練 — Service Worker
    策略：app shell 走 cache-first（離線可開），plan.json 走 network-first（課表可更新）
    訓練紀錄不經過這裡，一律存在 localStorage。 */
-const VERSION = 'v71';
+const VERSION = 'v72';
 const SHELL = 'shell-' + VERSION;
+/* 🔴 課表存在**不隨版本清空**的 cache。
+   踩過：plan.json 原本存在 shell-vNN 裡，而 activate 會刪掉所有 key !== SHELL 的 cache
+   ——於是**每次部署都把課表的離線副本一起刪掉**。
+   更糟的是，前面那段「伺服器回 404 就改用快取」的理由寫著「部署當下可能短暫 404」，
+   而部署當下正是離線副本剛被刪掉的那一刻——保護在它宣稱要保護的時間窗裡剛好失效。
+   DATA 的名字不帶 VERSION，activate 也明文放行，所以課表跨版本存活。 */
+const DATA = 'data-v1';
 const ASSETS = [
   './', './index.html', './style.css', './app.js', './coach.js',
   './manifest.json', './icons/icon-192.png', './icons/icon-512.png'
@@ -13,11 +20,23 @@ self.addEventListener('install', e => {
 });
 
 self.addEventListener('activate', e => {
-  e.waitUntil(
-    caches.keys()
-      .then(ks => Promise.all(ks.filter(k => k !== SHELL).map(k => caches.delete(k))))
-      .then(() => self.clients.claim())
-  );
+  e.waitUntil((async () => {
+    const keys = await caches.keys();
+    // 🔴 先搬再刪。舊的 plan.json 在 shell-v70 之類的舊 cache 裡，
+    //    先刪再搬會搬到一個已經空掉的地方（第一版就是這樣寫的，等於沒搬）。
+    const data = await caches.open(DATA);
+    if (!(await data.match('plan.json', { ignoreSearch: true }))) {
+      for (const k of keys) {
+        if (k === DATA) continue;
+        const old = await caches.open(k);
+        const hit = await old.match('plan.json', { ignoreSearch: true });
+        if (hit) { await data.put('plan.json', hit); break; }
+      }
+    }
+    // DATA 要留著——它裝的是課表的離線副本，不隨版本汰換
+    await Promise.all(keys.filter(k => k !== SHELL && k !== DATA).map(k => caches.delete(k)));
+    await self.clients.claim();
+  })());
 });
 
 self.addEventListener('fetch', e => {
@@ -28,9 +47,15 @@ self.addEventListener('fetch', e => {
 
   // 寫快取要掛在 e.waitUntil 上，否則 SW 可能在寫入完成前被瀏覽器終止，
   // 下次離線開啟就少了那個檔（回應照樣回得去，這裡只保住寫入）。
+  // 課表進 DATA（跨版本存活），其餘進 SHELL（隨版本汰換）
+  const isPlan = url.pathname.endsWith('plan.json');
+  const box = isPlan ? DATA : SHELL;
   const put = (r) => {
+    // cache.put 對 206 Partial Content 規定要丟 TypeError，而 res.ok 涵蓋 200-299。
+    // 加上 .catch：配額爆掉或回應不可快取時，不要讓 waitUntil 收到 rejected promise。
+    if (r.status !== 200) return;
     const copy = r.clone();
-    e.waitUntil(caches.open(SHELL).then(c => c.put(req, copy)));
+    e.waitUntil(caches.open(box).then(c => c.put(req, copy)).catch(() => {}));
   };
   const cached = () => caches.match(req, { ignoreSearch: true });
   // 離線又沒快取時，一定要回一個真的 Response——
@@ -40,7 +65,7 @@ self.addEventListener('fetch', e => {
   });
 
   // 課表：先連網拿最新，失敗才用快取
-  if (url.pathname.endsWith('plan.json')) {
+  if (isPlan) {
     e.respondWith(
       fetch(req).then(res => {
         if (res && res.ok) { put(res); return res; }
@@ -59,7 +84,7 @@ self.addEventListener('fetch', e => {
     // 預設 ignoreSearch:false 會永遠 miss，等於預快取白存。
     cached().then(hit => {
       const net = fetch(req).then(res => {
-        if (res && res.ok) put(res);
+        if (res) put(res);
         return res;
       }).catch(() => null);
       // 有快取就直接用（背景仍在更新）；沒快取才等網路，網路也不行就回 503。
