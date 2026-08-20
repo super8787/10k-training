@@ -110,9 +110,24 @@
           zoneLo + '-' + T.easyCeil + '。' +
           '下一次同類型的課，配速主動放慢 ' + R.PACE_SLOWDOWN +
           ' 秒/公里，長跑目標時間先打 ' + Math.round(R.LONG_CUT_SOFT * 10) +
-          ' 折。慢下來不是退步，是唯一能讓你跑完 10K 的路。',
+          ' 折。慢下來不是退步，是能不能跑完 10K 的關鍵。' + nextLongNote(),
         rule: 'R1｜easy/long 課平均心率 > ' + T.ceiling + ' bpm（Z5 下緣）'
       });
+    }
+
+    /* applyAdjustments 對檢查點免調整（`&& !s.checkpoint`）。
+       所以「長跑砍到 80%」這種話在「下一堂長跑剛好是檢查點」時是假的——
+       驗收抓到過：教練頁說砍了，實際那週唯一的長跑是 CP2，一分鐘都沒砍。
+       這支回傳一句但書（沒有但書時回空字串），R1／R2／R3 共用。 */
+    function nextLongNote() {
+      var nl = days.filter(function (d) {
+        return d.kind === 'long' && d.date >= todayStr;
+      })[0];
+      if (!nl) return '';
+      return nl.checkpoint
+        ? '（不過下一堂長跑是 ' + nl.checkpoint.id + ' 檢查點，測驗不調整——' +
+          '那一堂照原訂內容跑，調整從再下一堂長跑開始。）'
+        : '';
     }
 
     /* ── R2：連續沒完成 ── */
@@ -130,7 +145,8 @@
         title: '連續 ' + streak + ' 堂沒完成，本週自動降階',
         detail: '長跑目標砍到 ' + Math.round(R.LONG_CUT * 100) + '%。' +
           '這不是懲罰——身體跟不上原本的量，硬撐只會受傷。' +
-          '先把降階後的量穩穩做完，連續完成 ' + R.GOOD_STREAK + ' 堂就會自動加回來。',
+          '先把降階後的量穩穩做完，連續完成 ' + R.GOOD_STREAK + ' 堂就會自動加回來。' +
+          nextLongNote(),
         rule: 'R2｜連續 ≥' + R.MISS_STREAK + ' 堂排定課未打勾'
       });
     }
@@ -152,7 +168,7 @@
           title: '有氧基礎正在長出來',
           detail: '最近 ' + R.GOOD_STREAK + ' 次輕鬆跑心率都壓進 Z3（' + T.z2lo + '-' + T.steadyCeil +
             '）而且都完成了。這正是計畫要的。下次長跑可以加 ' +
-            Math.round((R.LONG_BOOST - 1) * 100) + '%，但心率規則不變。',
+            Math.round((R.LONG_BOOST - 1) * 100) + '%，但心率規則不變。' + nextLongNote(),
           rule: 'R3｜連續 ' + R.GOOD_STREAK + ' 次 easy 課完成且平均心率 ≤ ' + T.steadyCeil
         });
       }
@@ -247,6 +263,30 @@
           detail: '請回到「今天」或「本週」點進那天，告訴我有沒有達成：' + cp.passRule +
             '。後半段課表要照這個結果調整。',
           rule: 'R6｜檢查點已完成但 checkpointResult 未填'
+        });
+      } else if (d.date === todayStr) {
+        /* 🔴 檢查點**當天**本來完全沒有提示。
+           上面兩條只管「未來 14 天內」與「已完成」，`date === today` 且還沒做
+           落在縫裡——他當天打開 App 會看不到任何提醒，而那是全計畫最重要的兩天之一。 */
+        advices.push({
+          id: cp.id, level: 'hot', icon: '🚩',
+          title: '今天就是 ' + cp.id + ' 檢查點',
+          detail: '今天要測：' + cp.test + '。\n通過標準：' + cp.passRule +
+            '。\n沒通過的話：' + cp.onFail +
+            '\n\n跑完記得在紀錄裡回報結果，後半段課表要照這個結果調整。',
+          rule: 'R6｜檢查點 ' + cp.id + ' 就在今天'
+        });
+      } else {
+        /* 日期過了、也沒有完成紀錄＝漏掉了。不提醒的話這個檢查點就靜靜消失，
+           而課表後半段的降階判斷正是靠它。 */
+        var late = Math.round((new Date(todayStr) - new Date(d.date)) / 864e5);
+        advices.push({
+          id: cp.id, level: 'hot', icon: '⚠️',
+          title: cp.id + ' 檢查點過了 ' + late + ' 天，還沒有紀錄',
+          detail: '原訂 ' + d.date.slice(5).replace('-', '/') + ' 要測「' + cp.test +
+            '」。補做一次或直接回報結果都可以——' +
+            '後半段課表要照這個結果決定要不要降階。',
+          rule: 'R6｜檢查點 ' + cp.id + ' 已過期且無紀錄'
         });
       }
     });

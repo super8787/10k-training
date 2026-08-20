@@ -155,22 +155,33 @@ function sanitizeLog(raw) {
   if (raw.durationBasis === 'run' || raw.durationBasis === 'total') {
     o.durationBasis = raw.durationBasis;
   }
-  // 只收 ISO 格式，不要讓任意字串（含 XSS payload）留在 store 裡等下游踩
-  // 形狀對還不夠：2026-99-99T99:99:99Z 也符合正則。用 Date 往返比對確認真的是那個時刻。
-  if (typeof raw.completedAt === 'string' &&
-      /^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(raw.completedAt)) {
-    var dt = new Date(raw.completedAt);
-    if (!isNaN(dt.getTime()) && dt.toISOString() === raw.completedAt) {
-      o.completedAt = raw.completedAt;
-    }
-  }
+  var ca = toIso(raw.completedAt);
+  if (ca) o.completedAt = ca;
   return o;
 }
+/* 時刻欄位只收合法的 ISO 時刻，回傳**正規化後**的字串（取不到回 null）。
+   ⚠️ 不要用 `dt.toISOString() === 原字串` 當判準——那等於強制三位毫秒，
+      別的系統匯出的 `2026-08-20T12:00:00Z`（完全合法）會被無聲丟棄。
+      正確做法是正規化，不是拒收。
+   仍然要先擋形狀：不讓任意字串（含 XSS payload）留在 store 裡等下游踩。 */
+function toIso(v) {
+  if (typeof v !== 'string') return null;
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,6})?)?(Z|[+-]\d{2}:\d{2})$/.test(v)) return null;
+  var t = new Date(v);
+  return isNaN(t.getTime()) ? null : t.toISOString();
+}
+function isoOrNow(v) { return toIso(v) || new Date().toISOString(); }
 function sanitizeLogs(logs) {
   var out = {};
   if (!logs || typeof logs !== 'object') return out;
   Object.keys(logs).forEach(function (d) {
+    // 形狀對還不夠：2026-13-45 也符合這個正則。
+    // 用 Date 往返比對確認它真的是那一天（同 completedAt 的做法）。
     if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) return;
+    var t = new Date(d + 'T00:00:00Z');
+    // 先擋 Invalid Date——對它呼叫 toISOString() 會丟 RangeError，
+    // 一筆壞日期就會讓整個 sanitizeLogs 掛掉，等於所有紀錄都讀不出來。
+    if (isNaN(t.getTime()) || t.toISOString().slice(0, 10) !== d) return;
     var o = sanitizeLog(logs[d]);
     if (o) out[d] = o;
   });
@@ -187,7 +198,7 @@ function load() {
         // version 目前恆為 1 且沒有讀取端。留著它會讓人以為有遷移機制——
         // 真正的相容性靠每筆紀錄自己的 durationBasis 判斷，不靠全域版本號。
         return { version: 1, logs: sanitizeLogs(o.logs),
-                 createdAt: typeof o.createdAt === 'string' ? o.createdAt : new Date().toISOString() };
+                 createdAt: isoOrNow(o.createdAt) };
       }
     }
   } catch (e) { console.warn('讀取紀錄失敗', e); }
@@ -262,7 +273,8 @@ function sessionBlock(s, notes) {
 
   h += '<div class="hero-top">';
   h += '<span class="tag ' + k.cls + '">' + k.label + '</span>';
-  if (sess.deload) h += '<span class="tag deload">減量週</span>';
+  // 「長跑減量」不是「減量週」——減的是長跑那一堂，週總量不一定降
+  if (sess.deload) h += '<span class="tag deload">長跑減量</span>';
   if (sess.checkpoint) h += '<span class="tag cp">檢查點 ' + esc(sess.checkpoint.id) + '</span>';
   h += '<span class="tag">W' + sess.week + '</span>';
   h += '</div>';
@@ -403,7 +415,8 @@ function renderToday() {
 function logCard(date, lg, sess) {
   var h = '<div class="sec-h"><h2>這堂的紀錄</h2></div><div class="card">';
   var rows = [];
-  if (lg.km) rows.push(['距離', esc(lg.km) + ' <small>km</small>']);
+  // 用 != null 不用真值：淨化層特意保留了 km:0（休息日紀錄），真值判斷會把它吃掉
+  if (lg.km != null) rows.push(['距離', esc(lg.km) + ' <small>km</small>']);
   if (lg.durationMin) {
     var DB = {
       run:   ['跑步時間', '分（不含暖身緩和）'],
@@ -534,7 +547,9 @@ function renderWeek() {
   h += '<div class="sec-h"><h2>本週統計</h2></div><div class="card">';
   h += '<div class="kv"><div class="kv-k">完成度</div><div class="kv-v">' + doneN + ' / ' + days.length + '</div></div>';
   h += '<div class="kv"><div class="kv-k">計畫跑量</div><div class="kv-v">' + wl.load + ' <small>分</small></div></div>';
-  if (wl.deload) h += '<div class="kv"><div class="kv-k">週型</div><div class="kv-v"><span class="tag deload">減量週</span></div></div>';
+  if (wl.deload) h += '<div class="kv"><div class="kv-k">週型</div><div class="kv-v">' +
+    '<span class="tag deload">長跑減量</span>' +
+    '<small class="muted"> 　長跑那一堂砍量，週總量不一定跟著降</small></div></div>';
   h += '</div>';
   return h;
 }
@@ -922,6 +937,31 @@ function drawSheet(sess) {
    踩過的坑：步進器寫 km[0,30]／min[0,300] 但淨化層是 [0,100]／[0,600]，
    捷徑同步進 42.2km／420分之後，使用者按一下步進器就被夾成 30／300 並存檔＝靜默資料破壞。
    兩處各寫一份範圍遲早會漂移，所以直接拿掉「各寫一份」的可能性。 */
+/* 步進器在欄位空白時的起點。一律從課表／基準線推導，不要寫死數字。
+   取不到就退回該欄位範圍的下界（LOG_NUM 是唯一來源）。 */
+function seedFor(k, sess) {
+  var b = B(), lo = LOG_NUM[k][0];
+  if (k === 'hrAvg') {
+    // 該堂目標區的中點；沒有就用基準線那趟的平均心率
+    return (sess && sess.hrLo && sess.hrHi)
+      ? Math.round((sess.hrLo + sess.hrHi) / 2)
+      : (b.hrAvg || lo);
+  }
+  if (k === 'cadence')    return (sess && sess.cadence) || CAD.target;
+  if (k === 'durationMin') return (sess && sess.runMin) || lo;
+  if (k === 'restingHr')  return b.restingHr || lo;
+  if (k === 'rpe')        return 3;
+  if (k === 'km') {
+    if (sess && sess.km) return sess.km;
+    // 課表沒給距離（大多數訓練日以時間計）→ 用該堂跑步分鐘 ÷ 基準線配速估一個起點，
+    // 讓他從一個接近的數字開始調，而不是從 0 開始按。
+    if (sess && sess.runMin && b.paceSec) {
+      return Math.round(sess.runMin * 60 / b.paceSec * 10) / 10;
+    }
+  }
+  return lo;
+}
+
 function stepField(label, key, val, unit, step, hint) {
   var sp = LOG_NUM[key];
   var min = sp[0], max = sp[1], dec = sp[2];   // 小數位數也只有這一份
@@ -948,8 +988,11 @@ function onTap(e) {
     var mn = +step.dataset.min, mx = +step.dataset.max;
     var cur = draft[k];
     if (cur == null) {
-      var sess0 = shownSession(draft.date).session;
-      cur = k === 'hrAvg' ? 140 : k === 'cadence' ? (sess0.cadence || CAD.target) : 0;
+      // 欄位空白時第一次按，落在「這堂課合理的起點」，不加減方向。
+      // 🔴 原本除了心率與步頻以外一律給 0，而且不看方向——
+      //    距離欄按「−」會跳成 0.00 km，看起來像「你跑了 0 公里」。
+      //    心率的 140 也是硬寫的，HRmax 一改就對不上。
+      cur = seedFor(k, shownSession(draft.date).session);
     } else {
       cur = cur + dir * s;
     }
@@ -1062,7 +1105,8 @@ function doImport() {
       if (!o || typeof o.logs !== 'object' || o.logs === null) throw new Error('格式不對：找不到 logs');
       var clean = sanitizeLogs(o.logs);
       var dropped = Object.keys(o.logs).length - Object.keys(clean).length;
-      S = { version: 1, logs: clean, createdAt: o.createdAt || new Date().toISOString() };
+      // 匯入的備份是外部輸入，createdAt 一樣要淨化——它未來可能被渲染出來
+      S = { version: 1, logs: clean, createdAt: isoOrNow(o.createdAt) };
       save(); closeSheet(); render();
       toast('已匯入 ' + Object.keys(clean).length + ' 筆' + (dropped > 0 ? '（' + dropped + ' 筆格式不符已略過）' : ''));
     } catch (err) { alert('匯入失敗：' + err.message); }
@@ -1164,6 +1208,8 @@ function ingestURL() {
   }
 
   var o = sanitizeLog(raw);
+  // 淨化失敗就別寫——寫進 null 會讓那天的紀錄變成一個假的「有資料」節點
+  if (!o) { toast('同步的資料格式不對，沒有寫入'); return true; }
   S.logs[d] = o; save();
   history.replaceState(null, '', location.pathname);
   toast('已從手錶同步 ' + md(d) +
