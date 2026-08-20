@@ -235,6 +235,15 @@
     /* ── R6：檢查點 ── */
     days.filter(function (d) { return d.checkpoint; }).forEach(function (d) {
       var cp = d.checkpoint, l = logs[d.date];
+      /* 🔴 效期由**檢查點自己**帶（build_plan.py 算好放進 plan.json），不要在這裡猜。
+         兩個檢查點的效期不一樣：
+           CP1 的 onFail 改長跑結構 → 效期到最後一堂可調長跑
+           CP2 的 onFail 改比賽日策略 → 效期到比賽日
+         上一輪用「還有可調整的長跑」當代理量，對 CP1 對、對 CP2 錯——
+         CP2 在賽前 6 天就不再提醒，而那正是最需要決定比賽策略的幾天。
+         沒有 effectiveUntil 的舊 plan.json 一律當成還在效期內（fail-open 到「會提醒」，
+         寧可多講一次，也不要在該提醒的時候沉默）。 */
+      var within = !cp.effectiveUntil || todayStr <= cp.effectiveUntil;
       if (d.date > todayStr) {
         var dl = Math.round((new Date(d.date) - new Date(todayStr)) / 864e5);
         if (dl <= R.CP_LEAD_DAYS) {
@@ -258,6 +267,9 @@
         });
         if (!pass) { adj.runWalkMode = true; adj.reasons.push('R6-fail'); }
       } else if (l && l.done) {
+        // 這條原本也沒有上界——賽後 365 天照跳。跟下面那條同一個 forEach、相隔三行、
+        // 症狀一模一樣，上一輪只修了下面那條。用同一個 effectiveUntil。
+        if (!within) { return; }
         advices.push({
           id: cp.id, level: 'hot', icon: '❓',
           title: cp.id + ' 做完了，但還沒回報結果',
@@ -277,15 +289,12 @@
             '\n\n跑完記得在紀錄裡回報結果，後半段課表要照這個結果調整。',
           rule: 'R6｜檢查點 ' + cp.id + ' 就在今天'
         });
-      } else if (days.some(function (x) {
-        return x.kind === 'long' && !x.checkpoint && x.date > todayStr;
-      })) {
+      } else if (within) {
         /* 日期過了、也沒有完成紀錄＝漏掉了。不提醒的話這個檢查點就靜靜消失，
            而課表後半段的降階判斷正是靠它。
-           🔴 上界不是「比賽日之前」，是「**還有可調整的長跑**」——這條提示的整個理由
-              就是「後半段課表要照這個結果決定要不要降階」。沒有長跑可調的時候（減量期、
-              比賽日當天、賽後）講這句話沒有意義，而 level='hot' 會把它排到教練頁最上面。
-              （測過：無上界時賽後 365 天仍顯示「過了 405 天」。）
+           🔴 上界用 cp.effectiveUntil（見上面 within 的說明）。
+              測過：無上界時賽後 365 天仍顯示「過了 405 天」，而且 level='hot'
+              會把它排到教練頁最上面。
            🔴 也要分辨「按過今天沒跑」——那是有紀錄的，說「還沒有紀錄」對他是假話。 */
         var late = Math.round((new Date(todayStr) - new Date(d.date)) / 864e5);
         var skipped = l && l.skipped === true;

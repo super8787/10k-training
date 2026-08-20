@@ -1,7 +1,7 @@
 /* 10K 教練 — Service Worker
    策略：app shell 走 cache-first（離線可開），plan.json 走 network-first（課表可更新）
    訓練紀錄不經過這裡，一律存在 localStorage。 */
-const VERSION = 'v72';
+const VERSION = 'v73';
 const SHELL = 'shell-' + VERSION;
 /* 🔴 課表存在**不隨版本清空**的 cache。
    踩過：plan.json 原本存在 shell-vNN 裡，而 activate 會刪掉所有 key !== SHELL 的 cache
@@ -10,6 +10,7 @@ const SHELL = 'shell-' + VERSION;
    而部署當下正是離線副本剛被刪掉的那一刻——保護在它宣稱要保護的時間窗裡剛好失效。
    DATA 的名字不帶 VERSION，activate 也明文放行，所以課表跨版本存活。 */
 const DATA = 'data-v1';
+const PLAN = 'plan.json';   // 路徑只寫一份，fetch 判斷與搬遷共用
 const ASSETS = [
   './', './index.html', './style.css', './app.js', './coach.js',
   './manifest.json', './icons/icon-192.png', './icons/icon-512.png'
@@ -21,20 +22,41 @@ self.addEventListener('install', e => {
 
 self.addEventListener('activate', e => {
   e.waitUntil((async () => {
-    const keys = await caches.keys();
-    // 🔴 先搬再刪。舊的 plan.json 在 shell-v70 之類的舊 cache 裡，
-    //    先刪再搬會搬到一個已經空掉的地方（第一版就是這樣寫的，等於沒搬）。
-    const data = await caches.open(DATA);
-    if (!(await data.match('plan.json', { ignoreSearch: true }))) {
-      for (const k of keys) {
-        if (k === DATA) continue;
-        const old = await caches.open(k);
-        const hit = await old.match('plan.json', { ignoreSearch: true });
-        if (hit) { await data.put('plan.json', hit); break; }
+    let keys = [];
+    try {
+      keys = await caches.keys();
+      // 🔴 先搬再刪。舊的 plan.json 在 shell-v70 之類的舊 cache 裡，
+      //    先刪再搬會搬到一個已經空掉的地方（第一版就是這樣寫的，等於沒搬）。
+      const data = await caches.open(DATA);
+      if (!(await data.match(PLAN, { ignoreSearch: true }))) {
+        // 🔴 **從新到舊**找。caches.keys() 回的是建立順序（最舊在前），
+        //    正著找會在「上次 activate 被中斷、留下兩個舊 shell」時挑到最舊的那份課表。
+        for (const k of keys.slice().reverse()) {
+          if (k === DATA || k === SHELL) continue;
+          const old = await caches.open(k);
+          const hit = await old.match(PLAN, { ignoreSearch: true });
+          if (hit) {
+            // put 之前再確認一次：這中間可能已經有人寫進較新的一份
+            if (!(await data.match(PLAN, { ignoreSearch: true }))) {
+              await data.put(PLAN, hit);
+            }
+            break;
+          }
+        }
       }
+    } catch (err) {
+      /* 🔴 搬遷失敗不能擋住後面的清理與 claim。
+         驗收實測：任一 cache 操作丟例外 → activate 整個拋出 → clients.claim() 不跑、
+         舊 cache 不刪，於是留下「殘留舊 shell」——而那正是「搬到最舊那份」的前提。
+         一次失敗會餵養下一個 bug，所以這裡吞掉：課表留在舊 shell 頂多是這次沒搬到，
+         下次 activate 還有機會（上面的 for 迴圈會掃所有舊 cache）。 */
     }
-    // DATA 要留著——它裝的是課表的離線副本，不隨版本汰換
-    await Promise.all(keys.filter(k => k !== SHELL && k !== DATA).map(k => caches.delete(k)));
+    try {
+      // DATA 要留著——它裝的是課表的離線副本，不隨版本汰換
+      await Promise.all(
+        keys.filter(k => k !== SHELL && k !== DATA).map(k => caches.delete(k).catch(() => {}))
+      );
+    } catch (err) { /* 清理失敗不擋 claim */ }
     await self.clients.claim();
   })());
 });
@@ -48,7 +70,7 @@ self.addEventListener('fetch', e => {
   // 寫快取要掛在 e.waitUntil 上，否則 SW 可能在寫入完成前被瀏覽器終止，
   // 下次離線開啟就少了那個檔（回應照樣回得去，這裡只保住寫入）。
   // 課表進 DATA（跨版本存活），其餘進 SHELL（隨版本汰換）
-  const isPlan = url.pathname.endsWith('plan.json');
+  const isPlan = url.pathname.endsWith(PLAN);
   const box = isPlan ? DATA : SHELL;
   const put = (r) => {
     // cache.put 對 206 Partial Content 規定要丟 TypeError，而 res.ok 涵蓋 200-299。

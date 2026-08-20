@@ -5,7 +5,7 @@
   "startDate": "2026-08-20",
   "goal": "全程不走完賽 10 公里",
   "hrMax": 190,
-  "maxWeeklyGrowth": 0.15,
+  "maxLongGrowth": 0.15,
   "zones": {
    "Z1": {
     "lo": 125,
@@ -753,6 +753,7 @@
    "checkpoint": {
     "id": "CP1",
     "test": "連續跑 54 分鐘不停",
+    "effectiveUntil": "2026-11-02",
     "passRule": "全程未走路，且平均心率 ≤ 177 bpm",
     "onFail": "長跑維持走跑交替（跑 12 分／走 1 分），不強推連續跑。仍可完賽"
    },
@@ -1082,6 +1083,7 @@
    "checkpoint": {
     "id": "CP2",
     "test": "跑完 8 公里，走路不超過 2 次、每次 1 分鐘",
+    "effectiveUntil": "2026-11-08",
     "passRule": "完成 8 公里，且走路次數 ≤ 2 次",
     "onFail": "比賽日改採「跑 12 分走 1 分」策略，仍可完賽"
    },

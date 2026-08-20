@@ -1263,8 +1263,14 @@ function boot() {
   fetch('plan.json', { cache: 'no-cache' })
     .then(function (r) {
       if (!r.ok) {
-        // Service Worker 在離線／404 時會回一句中文說明，讀出來給人看，
-        // 不要只顯示「HTTP 503」——那句話寫得再細也沒人看得到。
+        /* Service Worker 在離線／404 時會回一句中文說明，讀出來給人看，
+           不要只顯示「HTTP 503」——那句話寫得再細也沒人看得到。
+           🔴 但只收 text/plain。伺服器自己的錯誤頁是 HTML：
+              實測 GitHub Pages 的 404 body 有 9,379 bytes，
+              無條件顯示會讓使用者看到 120 個字的 `<!DOCTYPE html>…`，比「HTTP 404」更難懂。
+              而「第一次造訪 ＋ 部署中 404」時還沒有 SW，走的正是這條。 */
+        var ct = (r.headers && r.headers.get && r.headers.get('Content-Type')) || '';
+        if (ct.indexOf('text/plain') === -1) throw new Error('HTTP ' + r.status);
         return r.text().catch(function () { return ''; }).then(function (msg) {
           throw new Error((msg || '').trim().slice(0, 120) || ('HTTP ' + r.status));
         });
