@@ -36,6 +36,9 @@ function hrT() { return Coach.zonesOf(PLAN); }
 function hrVerdict(sess, hr) {
   if (!sess || !hr) return null;
   var lo = sess.hrLo, hi = sess.hrHi, ceil = hrT().ceiling, band = lo + '-' + hi;
+  // 取不到硬上限（plan 沒有 zones）就不評價。回 null 讓呼叫端整句不顯示，
+  // 不要拿一個 null 去比大小——`hr > null` 等於 `hr > 0`，每一筆都會被判成超標。
+  if (ceil == null) return null;
   if (hr > ceil)        return { cls: 'down', text: '超過上限 ' + ceil + '，該改走路' };
   // 比賽日只看硬上限。那個 152-164 是「前 2K 壓在 164 以下」的意思，
   // 不是整場平均的目標帶——10K 平均 170 很正常，標紅只會嚇到人。
@@ -113,6 +116,8 @@ function cadenceColor(v, date) {
    現在：破硬上限＝紅、超過輕鬆／長跑上限＝黃、壓在裡面＝綠。門檻一律走 zonesOf()。 */
 function hrColor(v) {
   var t = hrT();
+  // 沒有門檻就不上色（中性）。同上，不要拿 null 去比大小。
+  if (t.ceiling == null || t.steadyCeil == null) return 'var(--accent)';
   return v > t.ceiling    ? 'var(--red)'
        : v > t.steadyCeil ? 'var(--amber)' : 'var(--green)';
 }
@@ -730,14 +735,18 @@ function renderData() {
           往下 10 行卻說「落在 Z2 才算跑對」，同一頁兩個判準。
        → 綠帶改成「輕鬆跑／長跑的上限以下」，門檻取自 zonesOf()，這裡不寫死數字。 */
     var ceil = hrT().steadyCeil;
+    var lowY = Math.min(110, Math.min.apply(null, hv) - 5);
     h += sparkline(hv, {
-      min: Math.min(110, Math.min.apply(null, hv) - 5),
+      min: lowY,
       max: Math.max(190, Math.max.apply(null, hv) + 5),
-      bandLo: Math.min(110, Math.min.apply(null, hv) - 5), bandHi: ceil,
+      // 取不到上限就不畫綠帶，也不講那句話——畫一條沒有依據的線比不畫更糟
+      bandLo: ceil == null ? null : lowY, bandHi: ceil,
       dotColor: hrColor
     });
-    h += '<div class="muted center" style="margin-top:6px">綠色區塊 = 輕鬆跑／長跑的上限（≤' +
-      ceil + '）。點落在綠區裡就對了。品質課的點會偏高，那是課表要的。</div>';
+    if (ceil != null) {
+      h += '<div class="muted center" style="margin-top:6px">綠色區塊 = 輕鬆跑／長跑的上限（≤' +
+        ceil + '）。點落在綠區裡就對了。品質課的點會偏高，那是課表要的。</div>';
+    }
     h += '<div class="muted center" style="margin-top:4px">起點 ' +
       PLAN.meta.baseline.hrAvg + ' bpm（' + bDate() + ' 實測）</div></div>';
   }
@@ -883,7 +892,9 @@ function renderCoach() {
       ? '你 ' + bDate() + ' 用 ' + bPace() + ' 配速慢跑，心率就 ' + B().hrAvg +
         '（' + zoneOf(B().hrAvg) + '）——現在要你待在 Z2 等於整堂走路。'
       : '慢跑心率就會偏高是正常的，現在要你待在 Z2 等於整堂走路。') +
-    '跑步時只要顧兩件事：<b>能講完一句話</b>、<b>心率別破 ' + hrT().ceiling + '</b>。' +
+    (hrT().ceiling != null
+      ? '跑步時只要顧兩件事：<b>能講完一句話</b>、<b>心率別破 ' + hrT().ceiling + '</b>。'
+      : '跑步時只要顧一件事：<b>能講完一句話</b>。') +
     '目標是同樣配速下心率慢慢往 Z3 掉。</div>';
   h += '<div class="card">';
   ['Z1', 'Z2', 'Z3', 'Z4', 'Z5'].forEach(function (z) {
@@ -961,7 +972,11 @@ function drawSheet(sess) {
       ? '⚠️ 這個數字是整段運動時間（含暖身緩和），請改成純跑步時間｜課表是 ' + sess.runMin + ' 分'
       : dbNow === 'run'
       ? '不含暖身與緩和｜今天課表是 ' + sess.runMin + ' 分'
-      : draft.durationMin != null
+      /* 🔴 這裡要問「**磁碟上那筆**有沒有 durationMin」，不是「面板上顯示著什麼」。
+         用 draft.durationMin 會永遠成立——openSheet() 在沒有紀錄時把它預填成 sess.runMin，
+         於是每一次打開一堂還沒記錄的課，都會看到「這筆沒有標明基準」，而那筆根本還不存在。
+         那是這支 App 最常走的一條路，接下來會走 40 次。 */
+      : (S.logs[sess.date] || {}).durationMin != null
       ? '⚠️ 這筆沒有標明基準，配速僅供參考。改一下這個數字就會標成純跑步時間｜課表是 ' + sess.runMin + ' 分'
       : '不含暖身與緩和｜今天課表是 ' + sess.runMin + ' 分');
   h += stepField('平均心率', 'hrAvg', draft.hrAvg, 'bpm', 1, '手錶上那個數字');

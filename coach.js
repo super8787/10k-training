@@ -9,11 +9,14 @@
   'use strict';
 
   var R = {
-    /* ⚠️ HR_EASY_CEIL / HR_STEADY_CEIL 是 fallback，正式值一律由 zonesOf(plan) 從
-       plan.meta.zones 取。它們原本是 0.72×HRMAX / 0.80×HRMAX 的手抄副本——
-       HRmax 一改（實測值本來就會重測），這裡不動就會跟課表打架。 */
-    HR_EASY_CEIL: 144,   // fallback：Z2 上限
-    HR_STEADY_CEIL: 160, // fallback：Z3 上限
+    /* 🔴 HR_EASY_CEIL(144)／HR_STEADY_CEIL(160) 已於 2026-08-22 移除。
+       它們是 zonesOf() 在「plan 沒有 zones」時的 fallback，而整組 fallback
+       {144,160,178,200} 跟現行課表產出的 {151,164,178,190} **只有 178 對得上**。
+       fallback 只有一種情境會觸發（跨版本存活的舊 plan.json），
+       而那恰好也是最難發現的情境——R1／R3 會印一組跟課表不同的數字，零訊號。
+       → 現在取不到 zones 就回 null，該講的話整句省略、該判的規則整條跳過。
+       這跟 z2lo 被移除、inZone2() 被移除是同一條理由：
+       **留一組沒人維護的舊數字在逃生門後面，等於在等它某天被用上。** */
     CADENCE_MIN: 150,    // R5 判定門檻；app.js 的 CAD.warn 直接引用這個值
     CADENCE_TARGET: 165, // 目標步頻；課表沒指定時的 fallback
     // R8 要比「同樣配速下的心率」，配速差太多就沒有可比性。
@@ -37,7 +40,7 @@
       /* z2lo 已於 2026-08-22 移除：最後一個讀者是 R1 的「目標區 139-151」，
          而那句話本身就是這輪修掉的缺陷。留一個沒人用的 Z2 值在唯一來源裡，
          跟當初 inZone2() 被整個移除的理由一樣——等於在邀請下一個人把 Z2 指標接回來。 */
-      easyCeil:   z ? z.Z2.hi : R.HR_EASY_CEIL,
+      easyCeil:   z ? z.Z2.hi : null,
       /* steadyLo 直接讀 Z3.lo，不要用 easyCeil+1 去推——推導出來的副本跟抄出來的副本
          是同一種東西，權威值就在 plan.meta.zones 裡。
          🔴 取不到就回 null，**不要用 fallback 那組數字補位**。
@@ -47,9 +50,9 @@
          而課表說 152-164，沒有任何訊號。
          → 慣例照 gctNote()：取不到就把那句話整個省略。 */
       steadyLo:   z ? z.Z3.lo : null,
-      steadyCeil: z ? z.Z3.hi : R.HR_STEADY_CEIL,
-      ceiling:    z ? z.Z5.lo : R.HR_STEADY_CEIL + 18,   // Z5 下緣＝真的太用力的門檻
-      z5hi:       z ? z.Z5.hi : 200
+      steadyCeil: z ? z.Z3.hi : null,
+      ceiling:    z ? z.Z5.lo : null,   // Z5 下緣＝真的太用力的門檻
+      z5hi:       z ? z.Z5.hi : null
     };
   }
   /* inZone2() 已於 2026-08-21 移除。它最後一個呼叫端是 app.js 的「最重要的一個數字」
@@ -124,7 +127,9 @@
            2026-08-19 改：他目前用 10 分速慢跑心率就 171，落在 Z4。
            拿 Z3 上緣當門檻會每一趟都判「你又跑太快」，那是雜訊不是提醒。
            真正該提醒的是進到 Z5——那才是慢不下來。 */
-        l && typeof l.hrAvg === 'number' && l.hrAvg > T.ceiling;
+        // T.ceiling 為 null（plan 沒有 zones）時整條跳過——沒有門檻就不該有判定。
+        // 🔴 不要讓 `hrAvg > null` 變成 `hrAvg > 0`，那會讓 R1 每次都觸發。
+        T.ceiling != null && l && typeof l.hrAvg === 'number' && l.hrAvg > T.ceiling;
     });
     if (hotOnes.length > 0) {
       var last = hotOnes[hotOnes.length - 1];
@@ -194,7 +199,9 @@
         var l = logs[d.date];
         /* 目標是把同樣配速的心率壓進 Z3（他現在在 Z4）。
            用 inZone2 會永遠不成立——Z2 對現在的他等於走路。 */
-        return l && typeof l.hrAvg === 'number' && l.hrAvg <= T.steadyCeil;
+        // 同上：沒有門檻就不判。`hrAvg <= null` 會變成 `hrAvg <= 0`＝永遠不成立，
+        // 那是「安靜地永遠不觸發」，比誤觸發更難發現。
+        return T.steadyCeil != null && l && typeof l.hrAvg === 'number' && l.hrAvg <= T.steadyCeil;
       });
       if (allInZone) {
         adj.longRunFactor = Math.max(adj.longRunFactor, R.LONG_BOOST);
