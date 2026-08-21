@@ -452,7 +452,9 @@ function logCard(date, lg, sess) {
        改成跟該堂自己的區間比，三格自動消失，而且以後改課表不用回來改這裡。 */
     var v = hrVerdict(sess, lg.hrAvg);
     if (v) warn = ' <span class="delta ' + v.cls + '">' + v.text + '</span>';
-    rows.push(['平均心率', esc(lg.hrAvg) + ' <small>bpm · ' + esc(z) + '</small>' + warn]);
+    // z 取不到就只印 bpm，不要印 "null"
+    rows.push(['平均心率', esc(lg.hrAvg) + ' <small>bpm' + (z ? ' · ' + esc(z) : '') +
+      '</small>' + warn]);
   }
   if (lg.cadence) {
     var cb = cadenceBadge(lg.cadence, sess.date);
@@ -512,6 +514,14 @@ function baselineCard() {
 
 function zoneOf(hr) {
   var z = PLAN.meta.zones, names = ['Z1', 'Z2', 'Z3', 'Z4', 'Z5'];
+  /* 🔴 取不到 zones 就回 null，呼叫端整句省略（照 gctNote() 的慣例）。
+     驗收實測：舊版快取的 plan.json 沒有 zones 時，`z.Z1.lo` 直接 TypeError，
+     **今天頁與教練頁整頁打死**。
+     這條是既有缺陷，但 2026-08-22 把 zonesOf() 的 fallback 改成 null 之後才被找出來——
+     因為我當時掃的是「誰讀 T./hrT()」，那是白名單式的掃法，
+     碰不到「直接讀 PLAN.meta.zones」的呼叫端。
+     ⭐ 要問的不是「誰讀了 zonesOf()」，是「**誰依賴 zones 存在**」。 */
+  if (!z || !z.Z1 || !z.Z5) return null;
   if (hr < z.Z1.lo) return '低於 Z1';   // 45 bpm 不該顯示成「Z1 恢復」
   for (var i = 0; i < names.length; i++) {
     // 用「小於下一區的下緣」判定：Z1.hi 與 Z2.lo 同為 120，用 <= hi 會讓 120 落進 Z1，
@@ -861,16 +871,22 @@ function renderCoach() {
 
   h += '<div class="sec-h"><h2>全部規則</h2><span>沒有黑箱</span></div><div class="card">';
   // 門檻一律讀真值，不要在這裡重打數字。
-  // ⚠️ 心率要走 hrT()（唯一來源＝plan.meta.zones）；CR.HR_EASY_CEIL／HR_STEADY_CEIL
-  //    現在只是 coach.js 的 fallback，讀它們會在 HRmax 改動後顯示舊數字。
+  // ⚠️ 心率一律走 hrT()（來源＝plan.meta.zones）。
+  //    coach.js 曾有 HR_EASY_CEIL／HR_STEADY_CEIL 兩個 fallback 常數可以讀，
+  //    2026-08-22 已移除（那組舊數字跟現行課表只有一個對得上）。
   var CR = Coach.RULES, TZ = hrT();
-  [['R1', '輕鬆／長跑平均心率 > ' + TZ.ceiling + '（Z5 下緣）',
+  // 🔴 取不到門檻就講不帶數字的說法。這一頁的標題是「沒有黑箱」，印 "> null" 比不印更糟。
+  [['R1', TZ.ceiling != null
+      ? '輕鬆／長跑平均心率 > ' + TZ.ceiling + '（Z5 下緣）'
+      : '輕鬆／長跑平均心率超過硬上限（<b style="color:var(--amber)">課表沒帶心率區間，這條停用</b>）',
     '下次放慢 ' + CR.PACE_SLOWDOWN + ' 秒/km，長跑打 ' + Math.round(CR.LONG_CUT_SOFT * 10) + ' 折'],
    ['R2', '連續 ' + CR.MISS_STREAK + ' 堂沒完成', '長跑降到 ' + Math.round(CR.LONG_CUT * 100) + '%'],
    // 原本寫「心率 ≤ 144」，但當時的實際判定是雙邊的 Z2 區間——110 bpm 符合「≤144」卻不觸發 R3。
    // （那個雙邊判定 inZone2 已於 2026-08-21 隨 Z2 指標一起移除；R3 現在用 steadyCeil。）
    // 這一頁的標題是「沒有黑箱」，寫錯規則比別頁嚴重。
-   ['R3', '連續 ' + CR.GOOD_STREAK + ' 次輕鬆跑心率 ≤ ' + TZ.steadyCeil + '（壓進 Z3）',
+   ['R3', TZ.steadyCeil != null
+      ? '連續 ' + CR.GOOD_STREAK + ' 次輕鬆跑心率 ≤ ' + TZ.steadyCeil + '（壓進 Z3）'
+      : '連續 ' + CR.GOOD_STREAK + ' 次輕鬆跑心率壓在上限以內（<b style="color:var(--amber)">課表沒帶心率區間，這條停用</b>）',
     '長跑加 ' + Math.round((CR.LONG_BOOST - 1) * 100) + '%'],
    ['R4', '靜止心率比近期均值高 ≥ ' + CR.RHR_JUMP + '　<b style="color:var(--amber)">（需接手錶捷徑才會啟用）</b>', '建議今天休息'],
    ['R5', '最近 ' + CR.GOOD_STREAK + ' 次<b>實測</b>步頻平均 < ' + CR.CADENCE_MIN +
@@ -886,11 +902,15 @@ function renderCoach() {
   });
   h += '</div>';
 
+  // 整段（含標題）都要有守衛——只包清單的話會留下一個空的「心率區間」標題
+  if (PLAN.meta.zones) {
   h += '<div class="sec-h"><h2>心率區間</h2><span>HRmax ' + PLAN.meta.hrMax + '（Karvonen）</span></div>';
   h += '<div class="focus warn">這些區間是<b>看趨勢用的，不是每一堂要待著的地方</b>。' +
     (bDate() && bPace() && B().hrAvg
       ? '你 ' + bDate() + ' 用 ' + bPace() + ' 配速慢跑，心率就 ' + B().hrAvg +
-        '（' + zoneOf(B().hrAvg) + '）——現在要你待在 Z2 等於整堂走路。'
+        // 分不出區間就只講心率，不要印「（null）」
+        (zoneOf(B().hrAvg) ? '（' + zoneOf(B().hrAvg) + '）' : '') +
+        '——現在要你待在 Z2 等於整堂走路。'
       : '慢跑心率就會偏高是正常的，現在要你待在 Z2 等於整堂走路。') +
     (hrT().ceiling != null
       ? '跑步時只要顧兩件事：<b>能講完一句話</b>、<b>心率別破 ' + hrT().ceiling + '</b>。'
@@ -904,6 +924,7 @@ function renderCoach() {
       '<div class="kv-v">' + o.lo + '-' + o.hi + '</div></div>';
   });
   h += '</div>';
+  }   // ← if (PLAN.meta.zones)
 
   h += '<div class="sec-h"><h2>資料</h2></div><div class="stack">';
   h += '<button class="btn ghost" data-act="export">匯出紀錄（JSON 備份）</button>';
@@ -997,8 +1018,10 @@ function drawSheet(sess) {
     // 跟紀錄卡走同一支 hrVerdict，不要在這裡另判一次
     var pv = hrVerdict(sess, draft.hrAvg);
     var bad = pv && (pv.cls === 'down' || pv.cls === 'warn');
-    h += '<div class="focus' + (bad ? ' alert' : '') + '">心率 ' + draft.hrAvg + ' = <b>' +
-      zoneOf(draft.hrAvg) + '</b>' + (pv ? '　' + (bad ? '⚠️ ' : '') + pv.text : '') + '</div>';
+    var zn = zoneOf(draft.hrAvg);
+    h += '<div class="focus' + (bad ? ' alert' : '') + '">心率 ' + draft.hrAvg +
+      (zn ? ' = <b>' + zn + '</b>' : '') +
+      (pv ? '　' + (bad ? '⚠️ ' : '') + pv.text : '') + '</div>';
   }
 
   h += '<div class="btn-row"><button class="btn" data-act="save">儲存</button>';
