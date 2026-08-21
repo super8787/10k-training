@@ -107,11 +107,13 @@ function cadenceColor(v, date) {
 /* 心率的判定同樣只能有一份。踩過：徽章判 `<=144` 就給「✓ Z2」，
    但 45 bpm 也 <=144，於是同一列出現「低於 Z1 ✓ Z2」自相矛盾。
    「在 Z2 帶內」必須是雙邊條件，跟圖上的點色、zoneOf 用同一套。 */
+/* 🔴 2026-08-21 跟著「上限」模型改：舊版把 152-164（Z3＝現在的目標區）畫成黃色、
+   139-151（Z2＝對他等於走路）畫成綠色，正好把要的標成不對、不要的標成對。
+   現在：破硬上限＝紅、超過輕鬆／長跑上限＝黃、壓在裡面＝綠。門檻一律走 zonesOf()。 */
 function hrColor(v) {
   var t = hrT();
-  return v > t.steadyCeil ? 'var(--red)'
-       : v > t.easyCeil   ? 'var(--amber)'
-       : v >= t.z2lo      ? 'var(--green)' : 'var(--accent)';
+  return v > t.ceiling    ? 'var(--red)'
+       : v > t.steadyCeil ? 'var(--amber)' : 'var(--green)';
 }
 var PLAN = null, S = null, TAB = 'today';
 
@@ -263,7 +265,7 @@ function sessionOf(date) {
 function shownSession(date) {
   var s0 = sessionOf(date);
   if (!s0) return null;
-  var r = Coach.applyAdjustments(s0, coachNow().adjustments);
+  var r = Coach.applyAdjustments(s0, coachNow().adjustments, PLAN);
   return { session: r.session, notes: r.notes };
 }
 function coachNow() { return Coach.analyze(PLAN, S.logs, today()); }
@@ -651,7 +653,10 @@ function renderData() {
   }
 
   var hrs = done.filter(function (d) { return S.logs[d.date].hrAvg; });
-  var easyLong = hrs.filter(function (d) { return d.kind === 'easy' || d.kind === 'long'; });
+  // 🔴 用 hrMode 不要用 kind 猜——本檔開頭就寫了「區間語意由課表的 hrMode 決定」，
+  //    hrVerdict() 照做了，這裡卻用 kind。目前兩者等價，所以這是計時炸彈不是現行錯誤：
+  //    哪天有一堂 easy 課改成 target 語意，這裡就會靜靜算錯。
+  var easyLong = hrs.filter(function (d) { return d.hrMode === 'ceiling'; });
   /* 🔴 2026-08-21 換掉這個指標。
      它原本算的是「平均心率落在 Z2（139-151）的比例，目標 70% 以上」，
      **跟這份計畫的模型互相矛盾**：
@@ -711,16 +716,25 @@ function renderData() {
       '<div class="kv-k">最近一次</div><div class="kv-v">' + last + ' <small>bpm</small>' +
       '<span class="delta ' + (last < first ? 'up' : last > first ? 'down' : 'flat') + '">' +
       (last < first ? '↓' : last > first ? '↑' : '→') + Math.abs(last - first) + '</span></div></div>';
+    /* 🔴 2026-08-21 兩件事一起修：
+       ① `Z`（＝PLAN.meta.zones）是換指標時被我連同舊程式一起刪掉的，
+          但這裡還在用 → 只要有第 2 筆心率紀錄，整個數據頁就 ReferenceError、畫面不動。
+          我的三條「實測」剛好全都只有 ≤1 筆紀錄，整組避開了 hrs.length >= 2 這條分支——
+          **測試集在結構上碰不到那段程式**。
+       ② 就算補回 Z，綠帶畫 Z2（139-151）也是錯的：頭條數字說「壓在該堂上限以內＝達標」，
+          往下 10 行卻說「落在 Z2 才算跑對」，同一頁兩個判準。
+       → 綠帶改成「輕鬆跑／長跑的上限以下」，門檻取自 zonesOf()，這裡不寫死數字。 */
+    var ceil = hrT().steadyCeil;
     h += sparkline(hv, {
       min: Math.min(110, Math.min.apply(null, hv) - 5),
       max: Math.max(190, Math.max.apply(null, hv) + 5),
-      bandLo: Z.Z2.lo, bandHi: Z.Z2.hi,
+      bandLo: Math.min(110, Math.min.apply(null, hv) - 5), bandHi: ceil,
       dotColor: hrColor
     });
-    h += '<div class="muted center" style="margin-top:6px">綠色區塊 = Z2（' +
-      Z.Z2.lo + '-' + Z.Z2.hi + '）。點落在綠區裡才算跑對。</div>';
+    h += '<div class="muted center" style="margin-top:6px">綠色區塊 = 輕鬆跑／長跑的上限（≤' +
+      ceil + '）。點落在綠區裡就對了。品質課的點會偏高，那是課表要的。</div>';
     h += '<div class="muted center" style="margin-top:4px">起點 ' +
-      PLAN.meta.baseline.hrAvg + ' bpm（8/18 實測）</div></div>';
+      PLAN.meta.baseline.hrAvg + ' bpm（' + bDate() + ' 實測）</div></div>';
   }
 
   /* 步頻 */
@@ -1190,6 +1204,19 @@ function ingestURL() {
       uHr  = numField('hr',  'hrAvg'),
       uCad = numField('cad', 'cadence'),
       uRhr = numField('rhr', 'restingHr');
+  /* basis：這個 min 是純跑步時間還是整段運動時間，**由送資料的那一端講清楚**。
+     🔴 2026-08-21 新增。原本這裡把「帶了 min 就是 'total'」寫死，理由是
+     「課表每堂都是走 5 分暖身 → 跑 X 分 → 走 5 分緩和，所以那是常態」——**常態不是定律**。
+     2026-08-20 那趟他直接起跑、全程沒走（速度樣本覆蓋 99.76%，低於走路門檻只有 36 秒＝1.74%），
+     34.65 分就是純跑步時間。硬標 'total' 會讓這種資料被 app.js:751 的配速趨勢與 R8 排除，
+     而它正是 R8 最想要的那種資料點（同配速、心率下降）。
+     為了繞過這件事，曾經設計「叫使用者按一下步進器讓守衛翻面」的動線——
+     那是把使用者當成一個開關，而且他漏按就靜默留下假資料（實測：4.03 km ÷ 課表預填 16 分
+     ＝ 3'58"/km 的假配速直接進趨勢）。**根因是這個介面表達不了基準，補參數才是正解。**
+     只認 'run'／'total' 兩個字面值，其餘（含沒帶）一律退回舊行為 'total'——
+     fail-safe 的方向是「當成含暖身緩和」，那一邊只會少畫一個點，不會餵假配速進引擎。 */
+  var bp = q.get('basis');
+  var uBasis = (bp === 'run' || bp === 'total') ? bp : null;
 
   // 2. 步頻：只收手錶直接給的值，**不再換算**
   //    2026-08-19 拿 8/18 那趟實測，兩條換算路徑的下場不同，理由要分清楚：
@@ -1216,7 +1243,9 @@ function ingestURL() {
        但只有「這次真的帶了 min」才標 'total'——下面第 3 步會沿用舊值，
        那個舊值可能是使用者手填的純跑步時間，硬標 'total' 會把它從配速趨勢裡踢掉。
        所以這裡先留空，等確定 min 從哪來再決定。 */
-    durationBasis: uMin != null ? 'total' : (prev.durationBasis || null),
+    // 只有「這次真的帶了 min」才由 basis 決定；沒帶 min 就沿用舊基準（可能是 undefined）。
+    // basis 沒帶就是 'total'（舊行為，fail-safe 那一側）。
+    durationBasis: uMin != null ? (uBasis || 'total') : (prev.durationBasis || null),
     completedAt: prev.completedAt || new Date().toISOString(),
     km: uKm, durationMin: uMin, hrAvg: uHr, restingHr: uRhr, cadence: cadence,
     rpe: prev.rpe != null ? prev.rpe : null,
@@ -1247,7 +1276,10 @@ function ingestURL() {
   if (!o) { toast('同步的資料格式不對，沒有寫入'); return true; }
   S.logs[d] = o; save();
   history.replaceState(null, '', location.pathname);
-  toast('已從手錶同步 ' + md(d) +
+  toast('已同步 ' + md(d) +
+    (o.durationMin != null
+      ? '（' + o.durationMin + ' 分＝' + (o.durationBasis === 'run' ? '純跑步時間' : '整段運動時間') + '）'
+      : '') +
     (derived ? '（步頻為換算值）'
      : keptMeasured ? '（步頻保留你填的實測值）'
      : reusedCad ? '（步頻沿用原紀錄）' : ''));

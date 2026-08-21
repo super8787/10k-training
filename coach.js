@@ -46,6 +46,20 @@
      其中 0 堂是 Z2，R3 也早就改用 steadyCeil。留著一個沒人用的 Z2 判定，
      等於在邀請下一個人把那個指標接回來。要看心率壓沒壓住，用該堂自己的 hrHi。 */
 
+  /* 跑走交替的處方只能有一份：課表的檢查點 onFail 裡寫了「跑 N 分走 M 分」，
+     那是 build_plan.py 的 RUNWALK_RUN/RUNWALK_WALK 格式化出來的。
+     App 端從那裡讀回來，不要自己再寫一個數字。
+     取不到就回不帶數字的說法——寧可少講，也不要講一個跟課表不同的數字。 */
+  function runWalkNote(plan) {
+    var days = (plan && plan.days) || [];
+    for (var i = 0; i < days.length; i++) {
+      var cp = days[i].checkpoint;
+      var m = cp && cp.onFail && cp.onFail.match(/跑\s*(\d+)\s*分[／/]?走\s*(\d+)\s*分/);
+      if (m) return '跑 ' + m[1] + ' 分／走 ' + m[2] + ' 分';
+    }
+    return '跑一段走一段（比例見課表的檢查點說明）';
+  }
+
   function ymd(d) {
     return d.getFullYear() + '-' +
       String(d.getMonth() + 1).padStart(2, '0') + '-' +
@@ -107,8 +121,10 @@
         id: 'R1', level: hotOnes.length >= 2 ? 'crit' : 'hot', icon: '🔥',
         title: '你又跑太快了',
         detail: '最近 ' + hotOnes.length + ' 次輕鬆／長跑的平均心率超過 ' +
-          T.ceiling + '（最近一次 ' + lastHr + '）。這個強度慢不下來了。目前的目標區是 ' +
-          zoneLo + '-' + T.easyCeil + '。' +
+          // 🔴 這裡原本印 zoneLo-easyCeil ＝ 139-151 ＝ Z2，而同一支 App 的教練頁寫
+          //    「現在要你待在 Z2 等於整堂走路」。R1 是使用者看得到的建議，兩者直接打架。
+          T.ceiling + '（最近一次 ' + lastHr + '）。這個強度慢不下來了。這類課的上限是 ' +
+          T.steadyCeil + '（' + T.z2lo + ' 以下都算壓住了）。' +
           '下一次同類型的課，配速主動放慢 ' + R.PACE_SLOWDOWN +
           ' 秒/公里，長跑目標時間先打 ' + Math.round(R.LONG_CUT_SOFT * 10) +
           ' 折。慢下來不是退步，是能不能跑完 10K 的關鍵。' + nextLongNote(),
@@ -167,7 +183,9 @@
         advices.push({
           id: 'R3', level: 'good', icon: '📈',
           title: '有氧基礎正在長出來',
-          detail: '最近 ' + R.GOOD_STREAK + ' 次輕鬆跑心率都壓進 Z3（' + T.z2lo + '-' + T.steadyCeil +
+          // 🔴 下界原本用 z2lo（139）＝ Z2 的下緣，但這句話講的是 Z3（152-164）。
+          //    T 沒有 z3lo，直接由 easyCeil + 1 推——區間不重疊是 build_plan.zbpm() 保證的。
+          detail: '最近 ' + R.GOOD_STREAK + ' 次輕鬆跑心率都壓進 Z3（' + (T.easyCeil + 1) + '-' + T.steadyCeil +
             '）而且都完成了。這正是計畫要的。下次長跑可以加 ' +
             Math.round((R.LONG_BOOST - 1) * 100) + '%，但心率規則不變。' + nextLongNote(),
           rule: 'R3｜連續 ' + R.GOOD_STREAK + ' 次 easy 課完成且平均心率 ≤ ' + T.steadyCeil
@@ -419,7 +437,9 @@
   }
 
   /* 把調整量套到單一堂課，回傳 {session, notes[]} */
-  function applyAdjustments(sess, adj) {
+  /* plan 是 2026-08-21 新增的第三個參數：跑走交替的處方要從課表的檢查點 onFail 讀，
+     不能在這支裡再寫一份數字。沒傳 plan 也不會爆——runWalkNote() 會退回不帶數字的說法。 */
+  function applyAdjustments(sess, adj, plan) {
     var s = Object.assign({}, sess), notes = [];
     /* 檢查點不降階。CP1／CP2 的意義就是測「做不做得到那個量」，
        自動降成 6.4K 等於測驗失去意義，而且照降階後的量跑完必然回報未達成，
@@ -495,7 +515,10 @@
       notes.push('這堂務必開節拍器（' + (s.cadence || R.CADENCE_TARGET) + ' spm）');
     }
     if (adj.runWalkMode && !s.checkpoint && s.kind === 'long') {
-      notes.push('已切換跑走交替模式：跑 8 分／走 1 分，重複到達標');
+      // 🔴 這個 8 是硬寫的，而檢查點 onFail 的處方是「跑 12 分／走 1 分」
+      //    （build_plan.py 的 RUNWALK_RUN/RUNWALK_WALK 已經收斂成一份）。
+      //    同一個觸發給兩個處方 → 從課表帶進來，不要在這裡再寫一次。
+      notes.push('已切換跑走交替模式：' + runWalkNote(plan) + '，重複到達標');
     }
     return { session: s, notes: notes };
   }
