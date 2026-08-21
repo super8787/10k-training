@@ -41,10 +41,10 @@
       z5hi:       z ? z.Z5.hi : 200
     };
   }
-  function inZone2(plan, v) {
-    var t = zonesOf(plan);
-    return v >= t.z2lo && v <= t.easyCeil;
-  }
+  /* inZone2() 已於 2026-08-21 移除。它最後一個呼叫端是 app.js 的「最重要的一個數字」
+     （心率落在 Z2 的比例），而那個指標本身跟這份計畫的模型矛盾——41 堂課的目標帶
+     其中 0 堂是 Z2，R3 也早就改用 steadyCeil。留著一個沒人用的 Z2 判定，
+     等於在邀請下一個人把那個指標接回來。要看心率壓沒壓住，用該堂自己的 hrHi。 */
 
   function ymd(d) {
     return d.getFullYear() + '-' +
@@ -503,6 +503,6 @@
   global.Coach = {
     analyze: analyze, currentWeek: currentWeek,
     applyAdjustments: applyAdjustments, RULES: R, ymd: ymd,
-    zonesOf: zonesOf, inZone2: inZone2
+    zonesOf: zonesOf
   };
 })(typeof globalThis !== 'undefined' ? globalThis : this);

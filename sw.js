@@ -1,7 +1,7 @@
 /* 10K 教練 — Service Worker
    策略：app shell 走 cache-first（離線可開），plan.json 走 network-first（課表可更新）
    訓練紀錄不經過這裡，一律存在 localStorage。 */
-const VERSION = 'v75';
+const VERSION = 'v76';
 const SHELL = 'shell-' + VERSION;
 /* 🔴 課表存在**不隨版本清空**的 cache。
    踩過：plan.json 原本存在 shell-vNN 裡，而 activate 會刪掉所有 key !== SHELL 的 cache

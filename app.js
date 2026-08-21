@@ -107,7 +107,6 @@ function cadenceColor(v, date) {
 /* 心率的判定同樣只能有一份。踩過：徽章判 `<=144` 就給「✓ Z2」，
    但 45 bpm 也 <=144，於是同一列出現「低於 Z1 ✓ Z2」自相矛盾。
    「在 Z2 帶內」必須是雙邊條件，跟圖上的點色、zoneOf 用同一套。 */
-function inZ2(v) { return Coach.inZone2(PLAN, v); }
 function hrColor(v) {
   var t = hrT();
   return v > t.steadyCeil ? 'var(--red)'
@@ -651,32 +650,57 @@ function renderData() {
       '這裡就會開始畫趨勢。</div></div>' + baselineCard();
   }
 
-  var Z = PLAN.meta.zones;
   var hrs = done.filter(function (d) { return S.logs[d.date].hrAvg; });
   var easyLong = hrs.filter(function (d) { return d.kind === 'easy' || d.kind === 'long'; });
-  // 必須用雙邊判定。單邊 `<= Z2.hi` 會把 45／95 bpm 也算成「落在 Z2」，
-  // 於是 App 標題最大的那個數字顯示 100% ＋「有氧基礎正在長出來」——完全相反的結論。
-  var nInZ2 = easyLong.filter(function (d) { return inZ2(S.logs[d.date].hrAvg); }).length;
-  var pctZ2 = easyLong.length ? Math.round(nInZ2 / easyLong.length * 100) : 0;
+  /* 🔴 2026-08-21 換掉這個指標。
+     它原本算的是「平均心率落在 Z2（139-151）的比例，目標 70% 以上」，
+     **跟這份計畫的模型互相矛盾**：
+       ① 教練頁（本檔 renderCoach）自己寫「現在要你待在 Z2 等於整堂走路」
+       ② 課表 41 堂的目標帶其中 0 堂是 Z2（37 堂 Z3 152-164、4 堂節奏跑 Z4 165-177）
+       ③ coach.js 的 R3 早就因為「inZone2 對現在的他不會成立」改用 steadyCeil
+     三處有兩處已經改到 Z3，沒改的那處剛好是 App 上字最大的那個。
+     後果實測：2026-08-20 那堂（配速比基準線快 41 秒、平均心率降 3.5 下）
+     顯示紅色 0% ＋「你還在用拚的方式跑步…慢下來」——結論跟事實相反。
+     → 改成「平均心率有沒有壓在**該堂自己的上限**以內」。
+       上限一律取自課表的 d.hrHi，這裡不寫死任何區間名稱或數字：
+       HRmax 改、課表改、hrMode 改，這個數字都會自己跟著走。
+     ⚠️ 只收 easy／long（hrMode 是 ceiling 的那兩種）。品質課的區間是**目標帶**不是上限，
+        混進來會把「節奏跑跑到 Z4」算成沒達標。 */
+  var overs = [];
+  var nUnder = 0;
+  easyLong.forEach(function (d) {
+    var v = S.logs[d.date].hrAvg;
+    if (v <= d.hrHi) nUnder++; else overs.push(v - d.hrHi);
+  });
+  var pctUnder = easyLong.length ? Math.round(nUnder / easyLong.length * 100) : 0;
 
   var h = '';
   /* 最重要的一個數字 */
   h += '<div class="sec-h"><h2>最重要的一個數字</h2></div>';
   // 0/0（只記了品質課、還沒有輕鬆跑或長跑）不是「0%」，是「還沒有資料」。
-  // 顯示紅色 0% ＋「你還在用拚的方式跑步」會冤枉人。
+  // 顯示紅色 0% ＋ 一句責備會冤枉人。
   var noData = easyLong.length === 0;
   h += '<div class="card big"><div class="big-n" style="color:' +
-    (noData ? 'var(--tx3)' : pctZ2 >= 70 ? 'var(--green)' : pctZ2 >= 40 ? 'var(--amber)' : 'var(--red)') + '">' +
-    (noData ? '—' : pctZ2 + '<span class="big-u">%</span>') + '</div>' +
-    '<div class="big-l">輕鬆跑／長跑中，平均心率落在 Z2（' + Z.Z2.lo + '-' + Z.Z2.hi + '）的比例<br>' +
-    '<span class="muted">' + nInZ2 + ' / ' + easyLong.length + ' 堂 · 目標 70% 以上</span></div></div>';
-  h += '<div class="focus' + (noData || pctZ2 >= 70 ? '' : ' warn') + '">' +
+    (noData ? 'var(--tx3)' : pctUnder >= 70 ? 'var(--green)' : pctUnder >= 40 ? 'var(--amber)' : 'var(--red)') + '">' +
+    (noData ? '—' : pctUnder + '<span class="big-u">%</span>') + '</div>' +
+    '<div class="big-l">輕鬆跑／長跑中，平均心率壓在<b>該堂上限</b>以內的比例<br>' +
+    '<span class="muted">' + nUnder + ' / ' + easyLong.length + ' 堂 · 目標 70% 以上</span></div></div>';
+  // 差多少比「0%」有用得多：超標 3 下和超標 25 下是完全不同的兩件事，
+  // 而百分比把它們壓成同一個 0%。
+  var overNote = '';
+  if (overs.length) {
+    var mx = Math.max.apply(null, overs);
+    var mn = Math.min.apply(null, overs);
+    overNote = '　超標的' + (overs.length > 1 ? '那幾堂高出 ' + mn + '～' + mx : '那一堂高出 ' + mx) + ' 下。';
+  }
+  h += '<div class="focus' + (noData || pctUnder >= 70 ? '' : ' warn') + '">' +
     (noData
       ? '還沒有輕鬆跑或長跑的心率紀錄。跑完一堂並填上平均心率，這個數字才有意義。'
-      : pctZ2 >= 70
-      ? '很好。有氧基礎正在長出來，這就是能跑完 10K 的東西。'
-      : '這個數字比配速重要得多。它低，代表你還在用「拚」的方式跑步——' +
-        '那種跑法練不出 10K 的耐力，只會累積疲勞。慢下來。') + '</div>';
+      : pctUnder >= 70
+      ? '很好。這些課的心率區間是<b>上限</b>——壓在裡面代表你用得住的力氣在跑，' +
+        '同樣配速下的心率才有機會繼續往下掉。'
+      : '這些課的心率區間是<b>上限</b>不是目標，超過代表跑得比這堂需要的用力。' + overNote +
+        '下一堂刻意放慢一點——這份計畫要的是「同樣配速、心率更低」，不是跑得更快。') + '</div>';
 
   /* 心率趨勢 */
   if (hrs.length >= 2) {
@@ -815,7 +839,8 @@ function renderCoach() {
   [['R1', '輕鬆／長跑平均心率 > ' + TZ.ceiling + '（Z5 下緣）',
     '下次放慢 ' + CR.PACE_SLOWDOWN + ' 秒/km，長跑打 ' + Math.round(CR.LONG_CUT_SOFT * 10) + ' 折'],
    ['R2', '連續 ' + CR.MISS_STREAK + ' 堂沒完成', '長跑降到 ' + Math.round(CR.LONG_CUT * 100) + '%'],
-   // 原本寫「心率 ≤ 144」，但實際判定是雙邊的 inZone2——110 bpm 符合「≤144」卻不觸發 R3。
+   // 原本寫「心率 ≤ 144」，但當時的實際判定是雙邊的 Z2 區間——110 bpm 符合「≤144」卻不觸發 R3。
+   // （那個雙邊判定 inZone2 已於 2026-08-21 隨 Z2 指標一起移除；R3 現在用 steadyCeil。）
    // 這一頁的標題是「沒有黑箱」，寫錯規則比別頁嚴重。
    ['R3', '連續 ' + CR.GOOD_STREAK + ' 次輕鬆跑心率 ≤ ' + TZ.steadyCeil + '（壓進 Z3）',
     '長跑加 ' + Math.round((CR.LONG_BOOST - 1) * 100) + '%'],
