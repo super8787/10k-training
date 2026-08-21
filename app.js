@@ -951,12 +951,18 @@ function drawSheet(sess) {
   }
 
   h += stepField('距離', 'km', draft.km, 'km', 0.1);
-  // 舊值若是 'total'（捷徑／匯出檔帶進來的整段時間），要明說它現在不是純跑步時間，
-  // 否則他看到「不含暖身緩和」的提示配一個含暖身緩和的數字，會以為已經對了。
+  /* durationBasis 是三態，這個提示也要三態。
+     🔴 踩過：把「沒有人宣告過基準」跟「已經確認是純跑步時間」講成同一句
+     （原本只分 'total' 與其他），等於替沒人宣告的事下斷言。
+     而顯示列與 toast 都已經分得出三態，只有這裡沒有——**它偏偏是回頭編輯時常駐在眼前的那一個**。 */
   var dbNow = (S.logs[sess.date] || {}).durationBasis;
   h += stepField('跑步時間', 'durationMin', draft.durationMin, '分', 1,
     dbNow === 'total'
       ? '⚠️ 這個數字是整段運動時間（含暖身緩和），請改成純跑步時間｜課表是 ' + sess.runMin + ' 分'
+      : dbNow === 'run'
+      ? '不含暖身與緩和｜今天課表是 ' + sess.runMin + ' 分'
+      : draft.durationMin != null
+      ? '⚠️ 這筆沒有標明基準，配速僅供參考。改一下這個數字就會標成純跑步時間｜課表是 ' + sess.runMin + ' 分'
       : '不含暖身與緩和｜今天課表是 ' + sess.runMin + ' 分');
   h += stepField('平均心率', 'hrAvg', draft.hrAvg, 'bpm', 1, '手錶上那個數字');
   h += stepField('步頻', 'cadence', draft.cadence, 'spm', 1,
@@ -1243,11 +1249,6 @@ function ingestURL() {
 
   var raw = {
     done: true, source: 'shortcut',
-    /* 🔴 捷徑（或匯出檔）給的 min 是**整段運動時間**，含暖身緩和——不是純跑步時間。
-       課表每一堂都是「走 5 分暖身 → 跑 X 分 → 走 5 分緩和」，所以這是常態不是例外。
-       但只有「這次真的帶了 min」才標 'total'——下面第 3 步會沿用舊值，
-       那個舊值可能是使用者手填的純跑步時間，硬標 'total' 會把它從配速趨勢裡踢掉。
-       所以這裡先留空，等確定 min 從哪來再決定。 */
     /* 只有「這次真的帶了 min」才由 basis 決定；沒帶 min 就沿用舊基準（可能是 undefined）。
        🔴 帶了 min 但沒帶合法 basis → 留空，**不要退回 'total'**。
        這個欄位本來就是三態：'run'／'total'／沒有這欄（＝基準未知，顯示「時間 · 基準未知」）。
@@ -1286,13 +1287,13 @@ function ingestURL() {
   S.logs[d] = o; save();
   history.replaceState(null, '', location.pathname);
   toast('已同步 ' + md(d) +
+    // 沒宣告基準要講出來。否則打錯一個字母（basis=RUN）的下場是：
+    // 看起來跟一筆正常紀錄一模一樣，而它永遠進不了配速趨勢。
+    // 🔴 警告不要接在「＝」後面——「35 分＝沒指明基準」讀起來像在定義那個 35。
     (o.durationMin != null
-      ? '（' + o.durationMin + ' 分＝' +
-        (o.durationBasis === 'run' ? '純跑步時間'
-         : o.durationBasis === 'total' ? '整段運動時間'
-         // 沒宣告基準要講出來。否則打錯一個字母（basis=RUN）的下場是：
-         // 看起來跟一筆正常紀錄一模一樣，而它永遠進不了配速趨勢。
-         : '⚠️ 沒指明基準，不進配速趨勢') + '）'
+      ? (o.durationBasis === 'run' ? '（' + o.durationMin + ' 分＝純跑步時間）'
+         : o.durationBasis === 'total' ? '（' + o.durationMin + ' 分＝整段運動時間）'
+         : '（' + o.durationMin + ' 分）⚠️ 沒指明基準，不進配速趨勢')
       : '') +
     (derived ? '（步頻為換算值）'
      : keptMeasured ? '（步頻保留你填的實測值）'

@@ -34,12 +34,19 @@
   function zonesOf(plan) {
     var z = plan && plan.meta && plan.meta.zones;
     return {
-      z2lo:       z ? z.Z2.lo : R.HR_EASY_CEIL - 24,
+      /* z2lo 已於 2026-08-22 移除：最後一個讀者是 R1 的「目標區 139-151」，
+         而那句話本身就是這輪修掉的缺陷。留一個沒人用的 Z2 值在唯一來源裡，
+         跟當初 inZone2() 被整個移除的理由一樣——等於在邀請下一個人把 Z2 指標接回來。 */
       easyCeil:   z ? z.Z2.hi : R.HR_EASY_CEIL,
-      // 🔴 steadyLo 直接讀 Z3.lo，不要用 easyCeil+1 去推。
-      //    推導出來的副本跟抄出來的副本是同一種東西——權威值就在 plan.meta.zones 裡。
-      //    只有 fallback（沒有 plan）才用 +1，那時本來就沒有權威值可讀。
-      steadyLo:   z ? z.Z3.lo : R.HR_EASY_CEIL + 1,
+      /* steadyLo 直接讀 Z3.lo，不要用 easyCeil+1 去推——推導出來的副本跟抄出來的副本
+         是同一種東西，權威值就在 plan.meta.zones 裡。
+         🔴 取不到就回 null，**不要用 fallback 那組數字補位**。
+         整組 fallback 是 {144,160,178,200}，而現行課表產出的是 {151,164,178,190}，
+         兩套只有 178 對得上。fallback 唯一會觸發的情境（跨版本存活的舊 plan.json 沒有 zones，
+         見 STATE 的 data-v1 段）恰好也是最難發現的情境——那時 R3 會說「Z3（145-160）」
+         而課表說 152-164，沒有任何訊號。
+         → 慣例照 gctNote()：取不到就把那句話整個省略。 */
+      steadyLo:   z ? z.Z3.lo : null,
       steadyCeil: z ? z.Z3.hi : R.HR_STEADY_CEIL,
       ceiling:    z ? z.Z5.lo : R.HR_STEADY_CEIL + 18,   // Z5 下緣＝真的太用力的門檻
       z5hi:       z ? z.Z5.hi : 200
@@ -94,7 +101,6 @@
     todayStr = todayStr || ymd(new Date());
     var days = plan.days;
     var T = zonesOf(plan);
-    var zoneLo = T.z2lo;
     var advices = [];
     var adj = {
       paceSlowdownSec: 0,
@@ -134,7 +140,9 @@
           //    「現在要你待在 Z2 等於整堂走路」。R1 是使用者看得到的建議，兩者直接打架。
           //    第一版改成「上限 164（139 以下都算壓住了）」——139 仍是 Z2 下緣，
           //    在上限模型裡沒有意義，而且會被反過來讀成「140-164 不算壓住」。整句拿掉。
-          T.ceiling + '（最近一次 ' + lastHr + '）。這個強度慢不下來了。這類課的心率是**上限**不是目標，'
+          // 🔴 這裡不能寫 Markdown。focus/detail 一律走 esc()，而 esc() 只轉 & < > " '，
+          //    星號會原封不動上螢幕（實測 v78 線上就是這樣）。要強調就用詞不用符號。
+          T.ceiling + '（最近一次 ' + lastHr + '）。這個強度慢不下來了。這類課的心率是上限、不是目標，'
           + '壓在 ' + T.steadyCeil + ' 以內就算壓住了，再低都不扣分。' +
           '下一次同類型的課，配速主動放慢 ' + R.PACE_SLOWDOWN +
           ' 秒/公里，長跑目標時間先打 ' + Math.round(R.LONG_CUT_SOFT * 10) +
@@ -195,8 +203,11 @@
           id: 'R3', level: 'good', icon: '📈',
           title: '有氧基礎正在長出來',
           // 🔴 下界原本用 z2lo（139）＝ Z2 的下緣，但這句話講的是 Z3。改讀 T.steadyLo（＝Z3.lo）。
-          detail: '最近 ' + R.GOOD_STREAK + ' 次輕鬆跑心率都壓進 Z3（' + T.steadyLo + '-' + T.steadyCeil +
-            '）而且都完成了。這正是計畫要的。下次長跑可以加 ' +
+          detail: '最近 ' + R.GOOD_STREAK + ' 次輕鬆跑心率都壓進 Z3' +
+            // 取不到 Z3 下界就不要講區間——寧可少講一句，也不要講一組跟課表不同的數字
+            (T.steadyLo ? '（' + T.steadyLo + '-' + T.steadyCeil + '）' : '') +
+            // 省略區間時要留標點，否則變成「壓進 Z3而且都完成了」
+            '，而且都完成了。這正是計畫要的。下次長跑可以加 ' +
             Math.round((R.LONG_BOOST - 1) * 100) + '%，但心率規則不變。' + nextLongNote(),
           rule: 'R3｜連續 ' + R.GOOD_STREAK + ' 次 easy 課完成且平均心率 ≤ ' + T.steadyCeil
         });
