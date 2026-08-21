@@ -36,6 +36,10 @@
     return {
       z2lo:       z ? z.Z2.lo : R.HR_EASY_CEIL - 24,
       easyCeil:   z ? z.Z2.hi : R.HR_EASY_CEIL,
+      // 🔴 steadyLo 直接讀 Z3.lo，不要用 easyCeil+1 去推。
+      //    推導出來的副本跟抄出來的副本是同一種東西——權威值就在 plan.meta.zones 裡。
+      //    只有 fallback（沒有 plan）才用 +1，那時本來就沒有權威值可讀。
+      steadyLo:   z ? z.Z3.lo : R.HR_EASY_CEIL + 1,
       steadyCeil: z ? z.Z3.hi : R.HR_STEADY_CEIL,
       ceiling:    z ? z.Z5.lo : R.HR_STEADY_CEIL + 18,   // Z5 下緣＝真的太用力的門檻
       z5hi:       z ? z.Z5.hi : 200
@@ -51,11 +55,16 @@
      App 端從那裡讀回來，不要自己再寫一個數字。
      取不到就回不帶數字的說法——寧可少講，也不要講一個跟課表不同的數字。 */
   function runWalkNote(plan) {
-    var days = (plan && plan.days) || [];
-    for (var i = 0; i < days.length; i++) {
-      var cp = days[i].checkpoint;
-      var m = cp && cp.onFail && cp.onFail.match(/跑\s*(\d+)\s*分[／/]?走\s*(\d+)\s*分/);
-      if (m) return '跑 ' + m[1] + ' 分／走 ' + m[2] + ' 分';
+    /* 🔴 第一版是去正則解析檢查點 onFail 的中文句子。那有兩個問題：
+       ① plan.json 是我們自己產的——控制得了產出端卻去解析自己產的散文，
+          是主動站到脆弱那一側，而且沒換到任何好處
+       ② 它只讀**第一個**檢查點，但 runWalkMode 是 CP1 或 CP2 任一沒過都會觸發。
+          今天兩者處方相同所以看不出來，哪天 CP2 改了，它會安靜地印 CP1 的數字
+       → 改讀 build_plan.py 直接吐出來的 meta.runWalk。
+       舊的離線快取 plan.json 沒有這欄 → 退回不帶數字的說法，一樣 fail-safe。 */
+    var rw = plan && plan.meta && plan.meta.runWalk;
+    if (rw && typeof rw.run === 'number' && typeof rw.walk === 'number') {
+      return '跑 ' + rw.run + ' 分／走 ' + rw.walk + ' 分';
     }
     return '跑一段走一段（比例見課表的檢查點說明）';
   }
@@ -123,8 +132,10 @@
         detail: '最近 ' + hotOnes.length + ' 次輕鬆／長跑的平均心率超過 ' +
           // 🔴 這裡原本印 zoneLo-easyCeil ＝ 139-151 ＝ Z2，而同一支 App 的教練頁寫
           //    「現在要你待在 Z2 等於整堂走路」。R1 是使用者看得到的建議，兩者直接打架。
-          T.ceiling + '（最近一次 ' + lastHr + '）。這個強度慢不下來了。這類課的上限是 ' +
-          T.steadyCeil + '（' + T.z2lo + ' 以下都算壓住了）。' +
+          //    第一版改成「上限 164（139 以下都算壓住了）」——139 仍是 Z2 下緣，
+          //    在上限模型裡沒有意義，而且會被反過來讀成「140-164 不算壓住」。整句拿掉。
+          T.ceiling + '（最近一次 ' + lastHr + '）。這個強度慢不下來了。這類課的心率是**上限**不是目標，'
+          + '壓在 ' + T.steadyCeil + ' 以內就算壓住了，再低都不扣分。' +
           '下一次同類型的課，配速主動放慢 ' + R.PACE_SLOWDOWN +
           ' 秒/公里，長跑目標時間先打 ' + Math.round(R.LONG_CUT_SOFT * 10) +
           ' 折。慢下來不是退步，是能不能跑完 10K 的關鍵。' + nextLongNote(),
@@ -183,9 +194,8 @@
         advices.push({
           id: 'R3', level: 'good', icon: '📈',
           title: '有氧基礎正在長出來',
-          // 🔴 下界原本用 z2lo（139）＝ Z2 的下緣，但這句話講的是 Z3（152-164）。
-          //    T 沒有 z3lo，直接由 easyCeil + 1 推——區間不重疊是 build_plan.zbpm() 保證的。
-          detail: '最近 ' + R.GOOD_STREAK + ' 次輕鬆跑心率都壓進 Z3（' + (T.easyCeil + 1) + '-' + T.steadyCeil +
+          // 🔴 下界原本用 z2lo（139）＝ Z2 的下緣，但這句話講的是 Z3。改讀 T.steadyLo（＝Z3.lo）。
+          detail: '最近 ' + R.GOOD_STREAK + ' 次輕鬆跑心率都壓進 Z3（' + T.steadyLo + '-' + T.steadyCeil +
             '）而且都完成了。這正是計畫要的。下次長跑可以加 ' +
             Math.round((R.LONG_BOOST - 1) * 100) + '%，但心率規則不變。' + nextLongNote(),
           rule: 'R3｜連續 ' + R.GOOD_STREAK + ' 次 easy 課完成且平均心率 ≤ ' + T.steadyCeil

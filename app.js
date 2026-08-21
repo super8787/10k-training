@@ -106,7 +106,8 @@ function cadenceColor(v, date) {
 }
 /* 心率的判定同樣只能有一份。踩過：徽章判 `<=144` 就給「✓ Z2」，
    但 45 bpm 也 <=144，於是同一列出現「低於 Z1 ✓ Z2」自相矛盾。
-   「在 Z2 帶內」必須是雙邊條件，跟圖上的點色、zoneOf 用同一套。 */
+   ⚠️ 這段是歷史紀錄：「在 Z2 帶內」那個雙邊判定已於 2026-08-21 隨 Z2 指標一起移除，
+      hrColor 現在是「破硬上限／超過輕鬆長跑上限／壓在裡面」三段，不再是雙邊。 */
 /* 🔴 2026-08-21 跟著「上限」模型改：舊版把 152-164（Z3＝現在的目標區）畫成黃色、
    139-151（Z2＝對他等於走路）畫成綠色，正好把要的標成不對、不要的標成對。
    現在：破硬上限＝紅、超過輕鬆／長跑上限＝黃、壓在裡面＝綠。門檻一律走 zonesOf()。 */
@@ -458,7 +459,11 @@ function logCard(date, lg, sess) {
   if (lg.rpe >= 1 && lg.rpe <= 5) rows.push(['體感', ['', '很輕鬆', '輕鬆', '有點喘', '很喘', '快掛了'][lg.rpe]]);
   if (lg.checkpointResult) rows.push(['檢查點結果',
     lg.checkpointResult === 'pass' ? '<span class="delta up">通過</span>' : '<span class="delta down">未通過</span>']);
-  if (lg.source) rows.push(['資料來源', lg.source === 'shortcut' ? '手錶自動同步' : '手動輸入']);
+  /* 🔴 'shortcut' 這個值原本標「手錶自動同步」——手錶捷徑那條路 2026-08-19 就停用了，
+     現在走這條的是「健康 App 匯出檔 → 我解析 → 產一條網址 → 他點一下」。
+     講「自動同步」是在回他一句假的自動化。 */
+  if (lg.source) rows.push(['資料來源',
+    lg.source === 'shortcut' ? '健康匯出檔（點網址帶入）' : '手動輸入']);
 
   if (!rows.length) {
     h += '<div class="muted center">已打勾，但沒填數據。<br>' +
@@ -1208,7 +1213,7 @@ function ingestURL() {
      🔴 2026-08-21 新增。原本這裡把「帶了 min 就是 'total'」寫死，理由是
      「課表每堂都是走 5 分暖身 → 跑 X 分 → 走 5 分緩和，所以那是常態」——**常態不是定律**。
      2026-08-20 那趟他直接起跑、全程沒走（速度樣本覆蓋 99.76%，低於走路門檻只有 36 秒＝1.74%），
-     34.65 分就是純跑步時間。硬標 'total' 會讓這種資料被 app.js:751 的配速趨勢與 R8 排除，
+     34.65 分就是純跑步時間。硬標 'total' 會讓這種資料被 `paces` 篩選（只收 'run'）與 R8 排除，
      而它正是 R8 最想要的那種資料點（同配速、心率下降）。
      為了繞過這件事，曾經設計「叫使用者按一下步進器讓守衛翻面」的動線——
      那是把使用者當成一個開關，而且他漏按就靜默留下假資料（實測：4.03 km ÷ 課表預填 16 分
@@ -1243,9 +1248,13 @@ function ingestURL() {
        但只有「這次真的帶了 min」才標 'total'——下面第 3 步會沿用舊值，
        那個舊值可能是使用者手填的純跑步時間，硬標 'total' 會把它從配速趨勢裡踢掉。
        所以這裡先留空，等確定 min 從哪來再決定。 */
-    // 只有「這次真的帶了 min」才由 basis 決定；沒帶 min 就沿用舊基準（可能是 undefined）。
-    // basis 沒帶就是 'total'（舊行為，fail-safe 那一側）。
-    durationBasis: uMin != null ? (uBasis || 'total') : (prev.durationBasis || null),
+    /* 只有「這次真的帶了 min」才由 basis 決定；沒帶 min 就沿用舊基準（可能是 undefined）。
+       🔴 帶了 min 但沒帶合法 basis → 留空，**不要退回 'total'**。
+       這個欄位本來就是三態：'run'／'total'／沒有這欄（＝基準未知，顯示「時間 · 基準未知」）。
+       第三態是刻意保留的——「沒有任何欄位能事後判斷舊值是哪個基準，猜了就是編」。
+       退回 'total' 會把「有人宣告是整段時間」跟「沒有人宣告」壓成同一個值，事後永遠分不出來。
+       而留空跟標 'total' 一樣安全：`paces` 要的是 === 'run'，缺欄位同樣被排除。 */
+    durationBasis: uMin != null ? uBasis : (prev.durationBasis || null),
     completedAt: prev.completedAt || new Date().toISOString(),
     km: uKm, durationMin: uMin, hrAvg: uHr, restingHr: uRhr, cadence: cadence,
     rpe: prev.rpe != null ? prev.rpe : null,
@@ -1278,7 +1287,12 @@ function ingestURL() {
   history.replaceState(null, '', location.pathname);
   toast('已同步 ' + md(d) +
     (o.durationMin != null
-      ? '（' + o.durationMin + ' 分＝' + (o.durationBasis === 'run' ? '純跑步時間' : '整段運動時間') + '）'
+      ? '（' + o.durationMin + ' 分＝' +
+        (o.durationBasis === 'run' ? '純跑步時間'
+         : o.durationBasis === 'total' ? '整段運動時間'
+         // 沒宣告基準要講出來。否則打錯一個字母（basis=RUN）的下場是：
+         // 看起來跟一筆正常紀錄一模一樣，而它永遠進不了配速趨勢。
+         : '⚠️ 沒指明基準，不進配速趨勢') + '）'
       : '') +
     (derived ? '（步頻為換算值）'
      : keptMeasured ? '（步頻保留你填的實測值）'
